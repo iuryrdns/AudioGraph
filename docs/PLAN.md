@@ -19,9 +19,12 @@ data/
 
 ## 2. Core Specifications
 
-* **Graph Topology & Matrix Building**: [`GRAPH_MODELLING.md`](file:///home/adley/repos/university/AudioGraph-AI/GRAPH_MODELLING.md)
-* **Next-Track Recommendation Algorithm**: [`ALGORITHM.md`](file:///home/adley/repos/university/AudioGraph-AI/ALGORITHM.md)
-* **Parameter Tuning & Evaluation Guide**: [`TUNING.md`](file:///home/adley/repos/university/AudioGraph-AI/TUNING.md)
+* **Graph Topology & Matrix Building**: [`GRAPH_MODELLING.md`](file:///home/adley/repos/university/AudioGraph-AI/docs/GRAPH_MODELLING.md)
+* **Next-Track Recommendation Algorithm**: [`ALGORITHM.md`](file:///home/adley/repos/university/AudioGraph-AI/docs/ALGORITHM.md)
+* **Parameter Tuning & Evaluation Guide**: [`TUNING.md`](file:///home/adley/repos/university/AudioGraph-AI/docs/TUNING.md)
+* **Technical Post-Mortem & Fix Analysis**: [`ACOUSTIC_SIMILARITY_POSTMORTEM.md`](file:///home/adley/repos/university/AudioGraph-AI/docs/ACOUSTIC_SIMILARITY_POSTMORTEM.md)
+* **Session Trajectory Memory Plan**: [`SESSION_TRAJECTORY_PLAN.md`](file:///home/adley/repos/university/AudioGraph-AI/docs/SESSION_TRAJECTORY_PLAN.md)
+* **iTunes API Dataset Enrichment & Frontend Plan**: [`ITUNES_ENRICHMENT_PLAN.md`](file:///home/adley/repos/university/AudioGraph-AI/docs/ITUNES_ENRICHMENT_PLAN.md)
 
 ---
 

@@ -18,7 +18,8 @@ This guide details how to iteratively tune the AudioGraph-AI recommendation pipe
 | `METADATA_WEIGHTS` | [`src/graph/recommender.py`](file:///home/adley/repos/university/AudioGraph-AI/src/graph/recommender.py#L14-L18) | Dict | Relative importance of shared Artist, Album, or Genre in 2-hop exploration |
 
 > [!NOTE]
-> When updating builder parameters (`feature_weights`, `threshold`, or `top_k`), remember to pass `force_rebuild=True` to `get_or_build_graph()` to invalidate the cached `.pkl` graph file and re-compute the similarity matrix.
+> When updating builder parameters (`feature_weights`, `threshold`, or `top_k`), pass `force_rebuild=True` to `get_or_build_graph()` or run `python main.py --rebuild` to invalidate the cached `.pkl` file and re-compute the similarity matrix.
+> You can also run `python main.py --clear-cache` to delete the existing cache file from disk.
 > Changing recommender runtime parameters (`artist_boost`, `genre_boost`, `exploration_prob`, `history_size`) does **not** require rebuilding the graph matrix.
 
 ---
