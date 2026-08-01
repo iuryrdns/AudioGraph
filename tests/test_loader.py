@@ -56,11 +56,9 @@ def test_load_and_preprocess_dataset():
     assert "album_entity" in meta
     assert "genre_entity" in meta
 
-    # Verify standard scaling properties (mean approx 0, std approx 1)
-    means = np.mean(dataset.X_scaled, axis=0)
-    stds = np.std(dataset.X_scaled, axis=0)
-    assert np.allclose(means, 0.0, atol=1e-5)
-    assert np.allclose(stds, 1.0, atol=1e-5)
+    # Verify MinMaxScaler properties (all feature values bounded between 0.0 and 1.0)
+    assert np.all(dataset.X_scaled >= 0.0)
+    assert np.all(dataset.X_scaled <= 1.0)
 
 
 def test_invalid_track_id():

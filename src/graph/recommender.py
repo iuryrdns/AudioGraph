@@ -2,7 +2,8 @@
 AudioGraph-AI Recommender Module
 
 Implements the Adaptive Radio next-track recommendation algorithm based on hybrid
-graph traversal (1-hop acoustic sampling with metadata boost, 2-hop multi-hop exploration, circular history buffer).
+graph traversal, metadata affinity multipliers, anti-repetition circular history, and
+Session Trajectory Memory (Full-Path Awareness).
 """
 
 from collections import deque
@@ -35,7 +36,7 @@ class RecommendationResult:
 
 class AdaptiveRadioRecommender:
     """
-    Adaptive Radio Engine for continuous, non-repetitive next-track recommendations.
+    Adaptive Radio Engine with Session Trajectory Memory (Full-Path Awareness).
     """
 
     def __init__(
@@ -43,8 +44,10 @@ class AdaptiveRadioRecommender:
         graph: GraphEngine,
         history_size: int = 15,
         exploration_prob: float = 0.15,
-        artist_boost: float = 1.25,
-        genre_boost: float = 1.15,
+        artist_boost: float = 1.35,
+        genre_boost: float = 1.20,
+        trajectory_alpha: float = 0.6,
+        session_weight: float = 0.3,
         random_seed: Optional[int] = None,
     ):
         """
@@ -56,10 +59,14 @@ class AdaptiveRadioRecommender:
             Circular buffer size N for tracking recently played tracks.
         exploration_prob : float, default 0.15
             Probability (0.0 to 1.0) of triggering multi-hop exploration.
-        artist_boost : float, default 1.25
-            Multiplier for 1-hop candidates sharing the same artist (+25%).
-        genre_boost : float, default 1.15
-            Multiplier for 1-hop candidates sharing the same genre (+15%).
+        artist_boost : float, default 1.35
+            Multiplier for 1-hop candidates sharing the same artist (+35%).
+        genre_boost : float, default 1.20
+            Multiplier for 1-hop candidates sharing the same genre (+20%).
+        trajectory_alpha : float, default 0.6
+            Decay rate alpha for session trajectory vector (EMA).
+        session_weight : float, default 0.3
+            Weight (0.0 to 1.0) assigned to global session vector alignment vs local transition.
         random_seed : int, optional
             Random seed for reproducible recommendation streams.
         """
@@ -68,14 +75,25 @@ class AdaptiveRadioRecommender:
         self.exploration_prob = exploration_prob
         self.artist_boost = artist_boost
         self.genre_boost = genre_boost
+        self.trajectory_alpha = trajectory_alpha
+        self.session_weight = session_weight
+
         self.history_buffer: deque[str] = deque(maxlen=history_size)
+        self.session_vector: Optional[np.ndarray] = None
         self.rng = np.random.RandomState(random_seed)
+
+    def reset_session(self) -> None:
+        """
+        Resets session state: clears circular history buffer and session trajectory vector.
+        """
+        self.history_buffer.clear()
+        self.session_vector = None
 
     def reset_history(self) -> None:
         """
-        Clears the circular history buffer.
+        Alias for reset_session.
         """
-        self.history_buffer.clear()
+        self.reset_session()
 
     def get_history(self) -> List[str]:
         """
@@ -83,26 +101,32 @@ class AdaptiveRadioRecommender:
         """
         return list(self.history_buffer)
 
+    def update_session_trajectory(self, track_id: str) -> None:
+        """
+        Updates the running Exponential Moving Average (EMA) session vector with track_id acoustic features.
+        """
+        x_k = self.graph.get_feature_vector(track_id)
+        if x_k is None:
+            return
+
+        if self.session_vector is None:
+            self.session_vector = np.copy(x_k)
+        else:
+            raw_vec = self.trajectory_alpha * x_k + (1.0 - self.trajectory_alpha) * self.session_vector
+            norm = np.linalg.norm(raw_vec)
+            self.session_vector = raw_vec / (norm if norm > 0 else 1e-8)
+
     def recommend_next(self, current_track_id: str) -> RecommendationResult:
         """
         Generates the next track recommendation given the current playing track.
-
-        Parameters
-        ----------
-        current_track_id : str
-            Track ID of current playing track.
-
-        Returns
-        -------
-        RecommendationResult
-            Recommendation container with selected track_id, metadata, and explanation.
         """
         if current_track_id not in self.graph:
             raise KeyError(f"Track ID '{current_track_id}' not found in graph engine.")
 
-        # Ensure current track is in history buffer
+        # Update session state with current track
         if current_track_id not in self.history_buffer:
             self.history_buffer.append(current_track_id)
+            self.update_session_trajectory(current_track_id)
 
         excluded_ids = set(self.history_buffer)
         excluded_ids.add(current_track_id)
@@ -114,7 +138,7 @@ class AdaptiveRadioRecommender:
         result: Optional[RecommendationResult] = None
 
         if not should_explore:
-            # Step 1: Direct 1-Hop Weighted Sampling (with artist/genre metadata boost)
+            # Step 1: Direct 1-Hop Weighted Sampling (with metadata boost & session trajectory)
             result = self._try_1hop_sampling(current_track_id, excluded_ids)
 
         if result is None:
@@ -125,8 +149,9 @@ class AdaptiveRadioRecommender:
             # Step 3: Global Fallback (Random unplayed track)
             result = self._global_fallback(excluded_ids)
 
-        # Push recommended track into history buffer
+        # Push recommended track into history and update session vector
         self.history_buffer.append(result.recommended_track_id)
+        self.update_session_trajectory(result.recommended_track_id)
         return result
 
     def recommend_stream(
@@ -149,7 +174,7 @@ class AdaptiveRadioRecommender:
         self, current_track_id: str, excluded_ids: set[str]
     ) -> Optional[RecommendationResult]:
         """
-        Attempts direct 1-hop weighted sampling with artist and genre metadata boosting.
+        Attempts direct 1-hop weighted sampling with metadata boost and session trajectory alignment.
         """
         neighbors = self.graph.get_neighbors(current_track_id)
         candidates = [(nid, w) for nid, w in neighbors if nid not in excluded_ids]
@@ -162,6 +187,7 @@ class AdaptiveRadioRecommender:
 
         boosted_weights = []
         for nid, base_weight in candidates:
+            local_score = base_weight
             boost = 1.0
             nbr_artists = set(self.graph.track_to_artist.get(nid, []))
             if curr_artists & nbr_artists:
@@ -170,7 +196,21 @@ class AdaptiveRadioRecommender:
             if curr_genre and self.graph.track_to_genre.get(nid) == curr_genre:
                 boost *= self.genre_boost
 
-            boosted_weights.append(base_weight * boost)
+            local_score *= boost
+
+            # Incorporate Session Trajectory Memory
+            if self.session_vector is not None and self.session_weight > 0.0:
+                c_vec = self.graph.get_feature_vector(nid)
+                if c_vec is not None:
+                    dist = np.linalg.norm(self.session_vector - c_vec)
+                    session_sim = float(np.exp(-2.0 * dist))
+                    final_score = (1.0 - self.session_weight) * local_score + self.session_weight * session_sim
+                else:
+                    final_score = local_score
+            else:
+                final_score = local_score
+
+            boosted_weights.append(final_score)
 
         c_ids = [c[0] for c in candidates]
         weights_arr = np.array(boosted_weights, dtype=np.float64)
@@ -249,6 +289,15 @@ class AdaptiveRadioRecommender:
         if not candidate_scores:
             return None
 
+        # Blend with session trajectory vector
+        if self.session_vector is not None and self.session_weight > 0.0:
+            for c_id in list(candidate_scores.keys()):
+                c_vec = self.graph.get_feature_vector(c_id)
+                if c_vec is not None:
+                    dist = np.linalg.norm(self.session_vector - c_vec)
+                    session_sim = float(np.exp(-2.0 * dist))
+                    candidate_scores[c_id] = (1.0 - self.session_weight) * candidate_scores[c_id] + self.session_weight * session_sim
+
         c_ids = list(candidate_scores.keys())
         scores = np.array([candidate_scores[cid] for cid in c_ids], dtype=np.float64)
         total_score = scores.sum()
@@ -285,7 +334,7 @@ class AdaptiveRadioRecommender:
 
         if not available_ids:
             # Clear history buffer if literally all tracks have been played
-            self.reset_history()
+            self.reset_session()
             available_ids = all_ids
 
         chosen_id = str(self.rng.choice(available_ids))

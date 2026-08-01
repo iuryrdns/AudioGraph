@@ -2,13 +2,13 @@
 AudioGraph-AI Graph Builder Module
 
 Responsible for constructing the dual-layer heterogeneous recommendation graph.
-Computes batch weighted cosine similarity, applies dual-pruning (threshold >= 0.3, top-k <= 300),
-builds SciPy CSR similarity matrices and metadata inverted indexes, and provides one-time caching.
+Computes batch Gaussian RBF weighted Euclidean similarity with super-genre compatibility anchoring,
+applies dual-pruning (threshold >= 0.3, top-k <= 300), builds SciPy CSR matrices and metadata indexes,
+and provides one-time caching.
 """
 
 import os
-from typing import Any
-
+from typing import Any, Optional
 import numpy as np
 import scipy.sparse as sp
 
@@ -19,56 +19,49 @@ from src.graph.loader import (
     load_and_preprocess_dataset,
 )
 from src.graph.persistence import load_graph, save_graph
+from src.graph.taxonomy import get_genre_compatibility
 
-# Domain importance weights for audio features (see GRAPH_MODELLING.md)
+# Domain importance weights for pure acoustic features
 DEFAULT_FEATURE_WEIGHTS: dict[str, float] = {
-    # High Importance (Vibe, Rhythm & Mood)
-    "danceability": 1.5,
-    "energy": 1.5,
-    "valence": 1.3,
-    "tempo": 1.2,
-    # Moderate Importance (Timbre & Texture)
-    "acousticness": 1.0,
-    "instrumentalness": 1.0,
-    "speechiness": 0.8,
-    # Low Importance (Production / Secondary Attributes)
-    "loudness": 0.5,
-    "liveness": 0.4,
-    "duration_ms": 0.1,
-    "popularity": 0.2,
+    # High Importance (Rhythm, Speed, Energy & Mood)
+    "danceability": 2.5,
+    "energy": 2.5,
+    "valence": 1.5,
+    "tempo_norm": 2.5,
+    "acousticness": 2.0,
+    # Moderate Importance (Timbre & Vocal Presence)
+    "instrumentalness": 1.5,
+    "speechiness": 1.0,
+    "loudness_norm": 1.0,
+    "liveness": 0.5,
 }
 
 
 def build_graph(
     dataset: TrackDataset,
-    feature_weights: dict[str, float] | None = None,
+    feature_weights: Optional[dict[str, float]] = None,
     threshold: float = 0.3,
     top_k: int = 300,
     batch_size: int = 1000,
 ) -> GraphEngine:
     """
     Constructs a GraphEngine instance from a preprocessed TrackDataset.
-
-    Parameters
-    ----------
-    dataset : TrackDataset
-        Preprocessed dataset container from loader.py.
-    feature_weights : dict, optional
-        Dictionary mapping feature names to numerical weight multipliers.
-    threshold : float, default 0.3
-        Minimum similarity threshold to retain an edge.
-    top_k : int, default 300
-        Maximum outgoing similarity neighbors per track.
-    batch_size : int, default 1000
-        Batch size for matrix multiplication.
-
-    Returns
-    -------
-    GraphEngine
-        Constructed GraphEngine ready for recommendations.
+    Applies Gaussian RBF Euclidean Distance and Super-Genre Compatibility Anchoring.
     """
     weights_dict = feature_weights or DEFAULT_FEATURE_WEIGHTS
     N = len(dataset)
+    track_genres = dataset.df["track_genre"].values.astype(str)
+
+    # Pre-compute vectorized 2D Super-Genre Compatibility Matrix
+    unique_genres = sorted(list(set(track_genres)))
+    genre_to_id = {g: i for i, g in enumerate(unique_genres)}
+    genre_ids = np.array([genre_to_id[g] for g in track_genres], dtype=np.int32)
+
+    num_unique = len(unique_genres)
+    M_compat = np.zeros((num_unique, num_unique), dtype=np.float32)
+    for i, g1 in enumerate(unique_genres):
+        for j, g2 in enumerate(unique_genres):
+            M_compat[i, j] = get_genre_compatibility(g1, g2)
 
     # 1. Prepare Feature Weight Vector
     weight_vector = np.array(
@@ -77,25 +70,40 @@ def build_graph(
     )
     sqrt_weights = np.sqrt(weight_vector)
 
-    # 2. Weighted Feature Matrix & Row L2 Normalization
+    # 2. Weighted Feature Matrix calculation (X_W)
     X_W = dataset.X_scaled * sqrt_weights
-    row_norms = np.linalg.norm(X_W, axis=1, keepdims=True)
-    row_norms[row_norms == 0] = 1e-8
-    X_hat = X_W / row_norms
+    X_W_sq_norms = np.sum(X_W ** 2, axis=1)
 
-    # 3. Chunked Similarity Matrix Calculation & Dual-Pruning
+    # 3. Chunked Similarity Matrix Calculation via Gaussian RBF & Vectorized Genre Compatibility
     rows: list[int] = []
     cols: list[int] = []
     values: list[float] = []
 
+    gamma = 2.0  # RBF distance scaling hyperparameter
+
     for start_idx in range(0, N, batch_size):
         end_idx = min(start_idx + batch_size, N)
-        X_batch = X_hat[start_idx:end_idx]
+        X_batch = X_W[start_idx:end_idx]
+        batch_sq_norms = X_W_sq_norms[start_idx:end_idx, np.newaxis]
+        batch_genre_ids = genre_ids[start_idx:end_idx]
 
-        # S_batch shape: (batch_len, N)
-        S_batch = np.dot(X_batch, X_hat.T)
+        # Squared Euclidean Distances: ||u - v||^2 = ||u||^2 + ||v||^2 - 2 (u . v)
+        dot_prod = np.dot(X_batch, X_W.T)
+        dist_sq = batch_sq_norms + X_W_sq_norms[np.newaxis, :] - 2.0 * dot_prod
+        dist_sq = np.maximum(0.0, dist_sq)
+        dist = np.sqrt(dist_sq)
 
-        for i_local in range(end_idx - start_idx):
+        # Raw Gaussian RBF similarity: S = exp(-gamma * dist)
+        S_raw = np.exp(-gamma * dist)
+
+        # Fast Vectorized Genre Compatibility Matrix Lookup
+        G_batch = M_compat[batch_genre_ids][:, genre_ids]
+
+        # Final Anchored Similarity Score
+        S_batch = S_raw * G_batch
+
+        batch_len = end_idx - start_idx
+        for i_local in range(batch_len):
             i_global = start_idx + i_local
             sim_row = S_batch[i_local]
 
@@ -175,14 +183,15 @@ def build_graph(
         track_to_artist=track_to_artist,
         track_to_genre=track_to_genre,
         track_to_album=track_to_album,
+        X_scaled=dataset.X_scaled,
     )
 
 
 def get_or_build_graph(
     csv_path: str,
-    cache_path: str | None = None,
+    cache_path: Optional[str] = None,
     force_rebuild: bool = False,
-    feature_weights: dict[str, float] | None = None,
+    feature_weights: Optional[dict[str, float]] = None,
     threshold: float = 0.3,
     top_k: int = 300,
     batch_size: int = 1000,
@@ -191,28 +200,6 @@ def get_or_build_graph(
     Main entrypoint for obtaining a GraphEngine instance.
     Checks if a cached graph file exists at cache_path. If so, loads it directly.
     Otherwise, builds the graph from csv_path, caches it to cache_path, and returns it.
-
-    Parameters
-    ----------
-    csv_path : str
-        Path to raw dataset CSV file.
-    cache_path : str, optional
-        Path to save/load pre-built binary graph file (e.g. 'data/spotify_graph.pkl').
-    force_rebuild : bool, default False
-        If True, forces rebuilding even if cache_path exists.
-    feature_weights : dict, optional
-        Custom feature weights dictionary.
-    threshold : float, default 0.3
-        Similarity threshold.
-    top_k : int, default 300
-        Top-k neighbor cap.
-    batch_size : int, default 1000
-        Batch size.
-
-    Returns
-    -------
-    GraphEngine
-        Ready-to-use graph engine instance.
     """
     if cache_path and os.path.exists(cache_path) and not force_rebuild:
         return load_graph(cache_path)
