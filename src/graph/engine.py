@@ -1,11 +1,10 @@
 """
-AudioGraph-AI Graph Engine Module
-
 High-performance API wrapper for the dual-layer heterogeneous music recommendation graph.
 Combines SciPy CSR sparse matrix operations with fast inverted index metadata lookups.
 """
 
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Any
+
 import numpy as np
 import scipy.sparse as sp
 
@@ -15,10 +14,10 @@ class NodesView:
     NetworkX duck-typing helper for graph.nodes[track_id].
     """
 
-    def __init__(self, track_metadata: Dict[str, Dict[str, Any]]):
+    def __init__(self, track_metadata: dict[str, dict[str, Any]]):
         self._metadata = track_metadata
 
-    def __getitem__(self, track_id: str) -> Dict[str, Any]:
+    def __getitem__(self, track_id: str) -> dict[str, Any]:
         if track_id not in self._metadata:
             raise KeyError(f"Node '{track_id}' not in graph.")
         return self._metadata[track_id]
@@ -41,16 +40,16 @@ class GraphEngine:
     def __init__(
         self,
         similarity_matrix: sp.csr_matrix,
-        id_to_idx: Dict[str, int],
+        id_to_idx: dict[str, int],
         idx_to_id: np.ndarray,
-        track_metadata: Dict[str, Dict[str, Any]],
-        artist_to_tracks: Dict[str, List[str]],
-        genre_to_tracks: Dict[str, List[str]],
-        album_to_tracks: Dict[str, List[str]],
-        track_to_artist: Dict[str, List[str]],
-        track_to_genre: Dict[str, str],
-        track_to_album: Dict[str, str],
-        X_scaled: Optional[np.ndarray] = None,
+        track_metadata: dict[str, dict[str, Any]],
+        artist_to_tracks: dict[str, list[str]],
+        genre_to_tracks: dict[str, list[str]],
+        album_to_tracks: dict[str, list[str]],
+        track_to_artist: dict[str, list[str]],
+        track_to_genre: dict[str, str],
+        track_to_album: dict[str, str],
+        X_scaled: np.ndarray | None = None,
     ):
         self.similarity_matrix = similarity_matrix
         self.id_to_idx = id_to_idx
@@ -73,14 +72,14 @@ class GraphEngine:
     def __contains__(self, track_id: str) -> bool:
         return track_id in self.id_to_idx
 
-    def __getitem__(self, track_id: str) -> Dict[str, Dict[str, float]]:
+    def __getitem__(self, track_id: str) -> dict[str, dict[str, float]]:
         """
         NetworkX duck-typing: graph[track_id] -> {'nbr_id': {'weight': float}}
         """
         neighbors = self.get_neighbors(track_id)
         return {nbr_id: {"weight": weight} for nbr_id, weight in neighbors}
 
-    def get_feature_vector(self, track_id: str) -> Optional[np.ndarray]:
+    def get_feature_vector(self, track_id: str) -> np.ndarray | None:
         """
         Retrieve normalized acoustic feature vector row for a track.
         """
@@ -89,7 +88,7 @@ class GraphEngine:
         idx = self.id_to_idx[track_id]
         return self.X_scaled[idx]
 
-    def get_neighbors(self, track_id: str) -> List[Tuple[str, float]]:
+    def get_neighbors(self, track_id: str) -> list[tuple[str, float]]:
         """
         Query 1-hop similarity neighbors for a track_id.
         Returns list of (neighbor_track_id, similarity_weight).
@@ -112,7 +111,7 @@ class GraphEngine:
         neighbors.sort(key=lambda x: x[1], reverse=True)
         return neighbors
 
-    def get_metadata(self, track_id: str) -> Dict[str, Any]:
+    def get_metadata(self, track_id: str) -> dict[str, Any]:
         """
         Retrieve metadata dictionary for a track.
         """
@@ -144,7 +143,7 @@ class GraphEngine:
             return float(self.similarity_matrix.data[row_start + matches[0]])
         return 0.0
 
-    def get_2hop_metadata_candidates(self, track_id: str) -> List[str]:
+    def get_2hop_metadata_candidates(self, track_id: str) -> list[str]:
         """
         Query 2-hop metadata candidate track_ids (same artist, genre, or album).
         """
