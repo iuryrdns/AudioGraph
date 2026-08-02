@@ -65,3 +65,26 @@ def test_invalid_track_id():
     dataset = load_and_preprocess_dataset(SMALL_DATASET_PATH)
     with pytest.raises(KeyError):
         dataset.get_track_metadata("NON_EXISTENT_ID")
+
+
+def test_disambiguate_indian_tracks():
+    import pandas as pd
+    from src.graph.loader import disambiguate_indian_tracks
+
+    sample_df = pd.DataFrame([
+        {"track_genre": "folk", "artists": "Prateek Kuhad", "raw_dataset_genre": "folk"},
+        {"track_genre": "folk", "artists": "Lord Huron", "raw_dataset_genre": "folk"},
+        {"track_genre": "folk", "artists": "Kailash Kher;Paresh Kamath", "raw_dataset_genre": "folk"},
+        {"track_genre": "folk", "artists": "The Lumineers", "raw_dataset_genre": "folk"},
+        {"track_genre": "música indiana", "artists": "Rahat Fateh Ali Khan", "raw_dataset_genre": "indian"},
+    ])
+
+    result_df = disambiguate_indian_tracks(sample_df)
+    genres = result_df["track_genre"].tolist()
+
+    assert genres[0] == "indian-folk"
+    assert genres[1] == "folk"
+    assert genres[2] == "indian-folk"
+    assert genres[3] == "folk"
+    assert genres[4] == "indian"
+

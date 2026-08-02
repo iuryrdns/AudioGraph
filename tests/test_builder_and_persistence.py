@@ -4,14 +4,13 @@ Unit tests for src/graph/builder.py, engine.py, and persistence.py
 
 import os
 import tempfile
-import pytest
-import numpy as np
+
 import scipy.sparse as sp
 
-from src.graph.loader import load_and_preprocess_dataset
 from src.graph.builder import build_graph, get_or_build_graph
 from src.graph.engine import GraphEngine
-from src.graph.persistence import save_graph, load_graph, export_to_graphml
+from src.graph.loader import load_and_preprocess_dataset
+from src.graph.persistence import export_to_graphml, load_graph, save_graph
 
 SMALL_DATASET_PATH = os.path.join(
     os.path.dirname(__file__), "..", "data", "small_spotify_tracks_dataset.csv"
@@ -85,7 +84,9 @@ def test_get_or_build_graph_caching():
         assert len(graph1) == len(graph2)
 
         first_track_id = graph1.idx_to_id[0]
-        assert graph1.get_neighbors(first_track_id) == graph2.get_neighbors(first_track_id)
+        assert graph1.get_neighbors(first_track_id) == graph2.get_neighbors(
+            first_track_id
+        )
 
 
 def test_graphml_export():

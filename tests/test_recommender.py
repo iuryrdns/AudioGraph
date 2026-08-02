@@ -3,15 +3,17 @@ Unit tests for src/graph/recommender.py and src/graph/taxonomy.py
 """
 
 import os
-import pytest
+
 import numpy as np
-from src.graph.loader import load_and_preprocess_dataset
+import pytest
+
 from src.graph.builder import build_graph
+from src.graph.loader import load_and_preprocess_dataset
 from src.graph.recommender import (
     AdaptiveRadioRecommender,
     RecommendationResult,
 )
-from src.graph.taxonomy import get_super_genre, get_genre_compatibility
+from src.graph.taxonomy import get_genre_compatibility, get_super_genre
 
 SMALL_DATASET_PATH = os.path.join(
     os.path.dirname(__file__), "..", "data", "small_spotify_tracks_dataset.csv"
@@ -37,13 +39,21 @@ def sample_recommender():
 def test_taxonomy():
     assert get_super_genre("acoustic") == "ACOUSTIC_INDIE"
     assert get_super_genre("sad") == "ACOUSTIC_INDIE"
+    assert get_super_genre("folk") == "ACOUSTIC_INDIE"
+    assert get_super_genre("indian-folk") == "WORLD_MEDIA"
+    assert get_super_genre("música indiana") == "WORLD_MEDIA"
     assert get_super_genre("edm") == "ELECTRONIC_DANCE"
     assert get_super_genre("heavy-metal") == "ROCK_METAL"
 
     assert get_genre_compatibility("acoustic", "acoustic") == 1.0
     assert get_genre_compatibility("acoustic", "sad") == 0.85
+    assert get_genre_compatibility("folk", "folk") == 1.0
+    assert get_genre_compatibility("folk", "indian-folk") == 0.15
+    assert get_genre_compatibility("indian-folk", "indian") == 0.85
     assert get_genre_compatibility("acoustic", "pop") == 0.50
     assert get_genre_compatibility("acoustic", "heavy-metal") == 0.15
+    # Ensure unknown OTHER genres do not get false 0.85 similarity
+    assert get_genre_compatibility("unmapped_genre1", "unmapped_genre2") == 0.15
 
 
 def test_recommend_next(sample_recommender):
@@ -70,7 +80,7 @@ def test_session_trajectory_memory(sample_recommender):
     initial_vec = np.copy(sample_recommender.session_vector)
 
     # Second recommendation updates EMA session vector
-    rec2 = sample_recommender.recommend_next(rec1.recommended_track_id)
+    sample_recommender.recommend_next(rec1.recommended_track_id)
     assert not np.array_equal(sample_recommender.session_vector, initial_vec)
 
     # Reset session clears vector
@@ -105,3 +115,27 @@ def test_recommend_stream(sample_recommender):
 def test_invalid_track_id(sample_recommender):
     with pytest.raises(KeyError):
         sample_recommender.recommend_next("INVALID_TRACK_ID")
+
+
+def test_recommend_with_exclude_and_feedback(sample_recommender):
+    seed_id = str(sample_recommender.graph.idx_to_id[0])
+    target_excluded = str(sample_recommender.graph.idx_to_id[1])
+
+    feedback = {
+        "liked_artists": ["Genie"],
+        "liked_genres": ["pop"],
+        "disliked_artists": ["Junk Artist"],
+        "disliked_genres": ["metal"],
+    }
+
+    stream = sample_recommender.recommend_stream(
+        seed_id,
+        count=5,
+        exclude_ids=[target_excluded],
+        feedback=feedback,
+    )
+
+    rec_ids = [r.recommended_track_id for r in stream]
+    assert target_excluded not in rec_ids
+    assert len(stream) == 5
+
