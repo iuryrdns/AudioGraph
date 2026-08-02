@@ -70,3 +70,12 @@ data/spotify_graph_cache.pkl
 
 # Uv files
 uv.lock
+
+# Backup data
+data/itunes_cache.json.backup
+
+# CLI session metadata
+.gemini/
+
+# Local server config/certs
+angie/
