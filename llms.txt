@@ -1,0 +1,148 @@
+# AudioGraph-AI
+
+> AudioGraph-AI is an adaptive radio music recommendation engine and web client. It combines a dual-layer heterogeneous graph (acoustic feature similarity + metadata topology) with session trajectory modeling, 1-hop exploitation / 2-hop graph exploration, and anti-repetition circular buffering.
+
+---
+
+## 1. Project Overview
+
+- **Core Goal**: Provide continuous, non-repeating adaptive radio streaming recommendations based on a seed track or user preferences.
+- **Engine Mechanics**:
+  - **Acoustic Layer**: Calculates 9D feature Euclidean distances transformed via Gaussian RBF kernel ($\exp(-\gamma \cdot d)$) with domain-specific feature weighting.
+  - **Metadata Layer**: Vectorized Super-Genre Compatibility matrix, inverted indices for artists, albums, and genres.
+  - **Dual Capping & Pruning**: Threshold similarity $\ge 0.3$, directed top-$k$ degree capping $\le 300$ stored as a SciPy CSR sparse matrix.
+  - **Adaptive Recommender**: Merges local transition similarity with an Exponential Moving Average (EMA, $\alpha=0.6$) session trajectory vector. Uses 1-hop acoustic exploitation (85%) and 2-hop metadata exploration (15%), plus real-time user feedback (liked/disliked artists & genres).
+  - **Enrichment**: Parallel iTunes Search API fallback to enrich track artwork ($300\times300$) and audio preview URLs.
+
+---
+
+## 2. Tech Stack
+
+- **Backend / Engine**: Python 3.12+, FastAPI, SciPy (`csr_matrix`), NumPy, Pandas, Scikit-Learn, Pytest, Uvicorn.
+- **Frontend**: Next.js 16, React 19, TypeScript, Tailwind CSS, Lucide React, Base UI, pnpm.
+- **Infrastructure**: Docker & Docker Compose, Angie (Nginx fork) reverse proxy (HTTP/HTTPS, dev & prod profiles).
+
+---
+
+## 3. Directory & File Map
+
+```
+AudioGraph-AI/
+├── main.py                     # CLI entry point to test graph builder & recommendation streams
+├── pyproject.toml              # Python dependencies & pytest configuration
+├── docker-compose.yml          # Multi-container orchestration (backend, frontend, angie-dev/prod)
+├── Dockerfile.backend          # FastAPI backend container definition
+├── data/
+│   ├── spotify_tracks_dataset.csv          # Raw Kaggle Spotify dataset
+│   ├── spotify_tracks_dataset_itunes.csv   # iTunes-enriched dataset (artwork & preview URLs)
+│   └── spotify_graph_cache.pkl             # Cached binary graph matrix & inverted indices
+├── src/
+│   ├── config.py               # BuilderConfig and RecommenderConfig dataclasses
+│   ├── api/
+│   │   └── server.py           # FastAPI REST server exposing /api/py/recommend, /search, etc.
+│   └── graph/
+│       ├── builder.py          # Graph construction, RBF kernel, matrix pruning, caching logic
+│       ├── engine.py           # GraphEngine data structure (CSR matrix, inverted indices, lookups)
+│       ├── loader.py           # Dataset CSV loading, preprocessing, 9D feature normalization
+│       ├── persistence.py     # Pickle serialization/deserialization for graph caching
+│       ├── recommender.py     # AdaptiveRadioRecommender stream generator & trajectory tracking
+│       └── taxonomy.py        # Super-genre mapping & compatibility matrix weights
+├── front/                      # Next.js 16 Web Application
+│   ├── app/                    # App Router pages and API routes
+│   ├── components/             # React UI components
+│   ├── package.json            # Node/pnpm package definitions & scripts
+│   └── Dockerfile              # Next.js standalone container build
+├── angie/                      # Angie reverse proxy configuration (dev & prod SSL/HTTP)
+├── scripts/
+│   ├── enrich_dataset_itunes.py     # Batch iTunes API enrichment script for dataset
+│   └── verify_recommendations.py   # Ground-truth verification against iTunes API
+├── tests/                      # Pytest unit & integration test suite
+│   ├── test_builder_and_persistence.py
+│   ├── test_config.py
+│   ├── test_enrichment.py
+│   ├── test_loader.py
+│   └── test_recommender.py
+└── docs/                       # Technical documentation & postmortems
+    ├── ALGORITHM.md
+    ├── GRAPH_MODELLING.md
+    ├── ACOUSTIC_SIMILARITY_POSTMORTEM.md
+    └── TUNING.md
+```
+
+---
+
+## 4. Key Workflows & Commands
+
+### Python / Backend Setup & Commands
+```bash
+# Run pytest test suite
+pytest
+
+# Run CLI recommendation stream generator
+python main.py --count 10
+python main.py --rebuild --seed-index 0
+python main.py --seed-id 5SuOikwiRyPMVoIQDJUgSV --random-seed 42
+
+# Start FastAPI server locally (port 8000)
+uvicorn src.api.server:app --reload --port 8000
+
+# Run ground-truth verification script
+python scripts/verify_recommendations.py
+
+# Run dataset enrichment script
+python scripts/enrich_dataset_itunes.py
+```
+
+### Frontend Commands
+```bash
+# From front/ directory
+cd front
+pnpm install
+pnpm dev      # Starts Next.js dev server on http://localhost:3000
+pnpm build    # Next.js production build
+```
+
+### Docker Compose Services
+```bash
+# Launch full dev stack (Backend + Frontend + Angie Proxy)
+docker compose --profile dev up --build
+
+# Launch production stack
+docker compose --profile prod up -d
+```
+
+---
+
+## 5. Environment Variables (`.env`)
+
+- `RANDOM_SEED`: Integer (e.g. `42`) for deterministic recommendations; `random` or blank for non-deterministic.
+- `SEED_TRACK_ID`: Spotify track ID used as starting seed.
+- `SEED_INDEX`: Row index in CSV used as starting seed.
+- `SEED`: Unified seed variable (auto-detects track ID, index, or `random`).
+- `PYTHON_ENGINE_URL`: URL for Next.js frontend to communicate with backend (default: `http://127.0.0.1:8000`).
+
+---
+
+## 6. Key Architecture APIs & Components
+
+- `GraphEngine` ([`src/graph/engine.py`](file:///home/adley/repos/university/AudioGraph-AI/src/graph/engine.py)):
+  - `.get_neighbors(track_id)` -> `list[tuple[track_id, similarity_weight]]`
+  - `.get_2hop_metadata_candidates(track_id)` -> `list[track_id]`
+  - `.get_metadata(track_id)` -> `dict` containing track name, artists, album, genre, artwork, preview_url.
+- `AdaptiveRadioRecommender` ([`src/graph/recommender.py`](file:///home/adley/repos/university/AudioGraph-AI/src/graph/recommender.py)):
+  - `.recommend_stream(seed_track_id, count=10, exclude_ids=[], feedback=None)` -> returns a stream of `Recommendation` objects with metadata, scores, and explanation strings.
+- `FastAPI Endpoints` ([`src/api/server.py`](file:///home/adley/repos/university/AudioGraph-AI/src/api/server.py)):
+  - `GET /health` / `GET /api/py/health`: Backend status and graph size.
+  - `GET /api/py/search?q=query&limit=20`: Track search across title, artist, genre.
+  - `POST /api/py/recommend`: Body: `{ seed: {...}, seed_id: str, count: int, exclude: [], feedback: {...} }`.
+  - `GET /api/py/graph/neighbors?track_id=ID`: 1-hop graph neighbors.
+  - `GET /api/py/graph/stats`: Total nodes, total edges, available genres.
+
+---
+
+## 7. Guidelines for AI Agents
+
+1. **Graph Matrix Integrity**: Matrix calculations use vectorized SciPy CSR and NumPy arrays. Avoid looping over nodes individually when calculating similarity or feature transformations.
+2. **Cache Caching & Invalidation**: When modifying feature weights in `src/config.py` or distance metrics in `src/graph/builder.py`, pass `--rebuild` or delete `data/spotify_graph_cache.pkl` to force rebuilding the graph matrix.
+3. **Verification**: Always run `pytest` after changing any files in `src/` to ensure no regressions in matrix loading, caching, or recommendation logic.
+4. **Metadata Fallbacks**: Non-blocking network calls (e.g. iTunes API enrichment in `src/api/server.py`) should remain threaded via `ThreadPoolExecutor` or `async` handlers to avoid stalling API responses.

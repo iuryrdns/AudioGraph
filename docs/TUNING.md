@@ -40,17 +40,17 @@ This guide details how to iteratively tune the AudioGraph-AI recommendation pipe
   1. Increase weights for `energy`, `valence`, `tempo`, and `danceability` in [`src/graph/builder.py`](file:///home/adley/repos/university/AudioGraph-AI/src/graph/builder.py#L20-L34):
      ```python
      CUSTOM_FEATURE_WEIGHTS = {
-         "energy": 2.0,        # Increased from 1.5
-         "tempo": 1.8,         # Increased from 1.2
-         "valence": 1.5,       # Increased from 1.3
+         "energy": 2.0,  # Increased from 1.5
+         "tempo": 1.8,  # Increased from 1.2
+         "valence": 1.5,  # Increased from 1.3
          "danceability": 1.5,
          "acousticness": 1.0,
          "instrumentalness": 1.0,
          "speechiness": 0.8,
          "loudness": 0.5,
          "liveness": 0.4,
-         "duration_ms": 0.1,    # Decreased to prevent duration biasing
-         "popularity": 0.1,     # Decreased to prevent popularity biasing
+         "duration_ms": 0.1,  # Decreased to prevent duration biasing
+         "popularity": 0.1,  # Decreased to prevent popularity biasing
      }
      ```
   2. Increase `threshold` from `0.3` to `0.4` or `0.45` to enforce stricter similarity requirements.
@@ -73,9 +73,9 @@ This guide details how to iteratively tune the AudioGraph-AI recommendation pipe
   2. Increase `METADATA_WEIGHTS` in [`src/graph/recommender.py`](file:///home/adley/repos/university/AudioGraph-AI/src/graph/recommender.py#L14-L18) so 2-hop fallback paths prioritize same-artist or same-genre tracks:
      ```python
      METADATA_WEIGHTS = {
-         "artist": 1.2,   # Increased from 0.8
-         "album": 0.9,    # Increased from 0.7
-         "genre": 0.7,    # Increased from 0.5
+         "artist": 1.2,  # Increased from 0.8
+         "album": 0.9,  # Increased from 0.7
+         "genre": 0.7,  # Increased from 0.5
      }
      ```
 
@@ -108,9 +108,9 @@ custom_weights = {
 graph = get_or_build_graph(
     csv_path="data/spotify_tracks_dataset.csv",
     cache_path="data/tuned_graph.pkl",
-    force_rebuild=True,             # Re-computes matrix with new weights
+    force_rebuild=True,  # Re-computes matrix with new weights
     feature_weights=custom_weights,
-    threshold=0.35,                  # Stricter threshold
+    threshold=0.35,  # Stricter threshold
     top_k=200,
 )
 
@@ -119,12 +119,14 @@ recommender = AdaptiveRadioRecommender(
     graph=graph,
     history_size=20,
     exploration_prob=0.20,
-    artist_boost=1.35,              # +35% boost for same-artist tracks
-    genre_boost=1.20,               # +20% boost for same-genre tracks
+    artist_boost=1.35,  # +35% boost for same-artist tracks
+    genre_boost=1.20,  # +20% boost for same-genre tracks
 )
 
 # 4. Generate stream and manually verify vibe continuity
 stream = recommender.recommend_stream(seed_track_id=graph.idx_to_id[0], count=10)
 for rec in stream:
-    print(f"{rec.recommendation_type} | {rec.track_metadata['track_name']} by {rec.track_metadata['primary_artist']} ({rec.explanation})")
+    print(
+        f"{rec.recommendation_type} | {rec.track_metadata['track_name']} by {rec.track_metadata['primary_artist']} ({rec.explanation})"
+    )
 ```

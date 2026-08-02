@@ -69,19 +69,17 @@ DEFAULT_FEATURE_WEIGHTS = {
     # High Importance (Vibe, Rhythm & Mood)
     "danceability": 1.5,
     "energy": 1.5,
-    "valence": 1.3,        # Positivity / Mood
+    "valence": 1.3,  # Positivity / Mood
     "tempo": 1.2,
-    
     # Moderate Importance (Timbre & Texture)
     "acousticness": 1.0,
     "instrumentalness": 1.0,
     "speechiness": 0.8,
-    
     # Low Importance (Production / Secondary Attributes)
     "loudness": 0.5,
     "liveness": 0.4,
     "duration_ms": 0.2,
-    "popularity": 0.3
+    "popularity": 0.3,
 }
 ```
 
@@ -132,14 +130,14 @@ The `GraphEngine` class (`src/graph/engine.py`) encapsulates the high-performanc
 neighbors = graph.get_neighbors(track_id)  # Returns list[tuple[neighbor_id, weight]]
 
 # Query track metadata
-metadata = graph.get_metadata(track_id)    # Returns dict of metadata & audio features
+metadata = graph.get_metadata(track_id)  # Returns dict of metadata & audio features
 
 # Query 2-hop metadata candidates
 candidates = graph.get_2hop_metadata_candidates(track_id)  # Returns list[candidate_id]
 
 # Query edge existence & weight
-has_edge = graph.has_edge(u, v)             # Returns bool
-weight = graph.get_edge_weight(u, v)        # Returns float
+has_edge = graph.has_edge(u, v)  # Returns bool
+weight = graph.get_edge_weight(u, v)  # Returns float
 ```
 
 ### 4.2 NetworkX Duck-Typing Support

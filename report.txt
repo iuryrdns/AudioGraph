@@ -1,0 +1,75 @@
+[✓] Cache file 'data/spotify_graph_cache.pkl' removed successfully.
+AudioGraph-AI: recomendação de músicas
+
+[*] Carregando graph engine (Dataset: 'data/spotify_tracks_dataset_itunes.csv', Cache: 'data/spotify_graph_cache.pkl') (FORCING REBUILD)...
+[+] Graph engine carregado com 455 músicas em 0.132 segundos.
+
+ Semente : 'Heaven - Acoustic'
+ Artista(s)   : Grace George
+ Gênero      : acoustic
+
+[*] Gerando fila com 10 músicas...
+
+ #01 | [1-HOP ACOUSTIC] (Correlação: 0.31)
+     Nome  : The Spark - Bonus Track
+     Artista : Joshua Hyslop
+     Gênero  : acoustic
+     Razão : Direct acoustic similarity (0.31) [same genre] with 'The Spark - Bonus Track' by Joshua Hyslop
+
+ #02 | [1-HOP ACOUSTIC] (Correlação: 0.34)
+     Nome  : The Ladder
+     Artista : Andrew Belle
+     Gênero  : acoustic
+     Razão : Direct acoustic similarity (0.34) [same genre] with 'The Ladder' by Andrew Belle
+
+ #03 | [1-HOP ACOUSTIC] (Correlação: 0.69)
+     Nome  : 100 Years
+     Artista : Five For Fighting
+     Gênero  : acoustic
+     Razão : Direct acoustic similarity (0.69) [same genre] with '100 Years' by Five For Fighting
+
+ #04 | [2-HOP MULTI-HOP] (Correlação: 0.32)
+     Nome  : Start of Time
+     Artista : Gabrielle Aplin
+     Gênero  : acoustic
+     Razão : Multi-hop graph score (0.32) to 'Start of Time' by Gabrielle Aplin
+
+ #05 | [1-HOP ACOUSTIC] (Correlação: 0.34)
+     Nome  : Good night
+     Artista : Masaharu Fukuyama
+     Gênero  : acoustic
+     Razão : Direct acoustic similarity (0.34) [same genre] with 'Good night' by Masaharu Fukuyama
+
+ #06 | [2-HOP MULTI-HOP] (Correlação: 0.22)
+     Nome  : Mr Blue
+     Artista : Catherine Feeny
+     Gênero  : acoustic
+     Razão : Multi-hop graph score (0.22) to 'Mr Blue' by Catherine Feeny
+
+ #07 | [1-HOP ACOUSTIC] (Correlação: 0.35)
+     Nome  : 12:51
+     Artista : krissy & ericka
+     Gênero  : acoustic
+     Razão : Direct acoustic similarity (0.35) [same genre] with '12:51' by krissy & ericka
+
+ #08 | [1-HOP ACOUSTIC] (Correlação: 0.49)
+     Nome  : Iris - Acoustic
+     Artista : Adam Christopher
+     Gênero  : acoustic
+     Razão : Direct acoustic similarity (0.49) [same genre] with 'Iris - Acoustic' by Adam Christopher
+
+ #09 | [1-HOP ACOUSTIC] (Correlação: 0.38)
+     Nome  : Jolene
+     Artista : Ray LaMontagne
+     Gênero  : acoustic
+     Razão : Direct acoustic similarity (0.38) [same genre] with 'Jolene' by Ray LaMontagne
+
+ #10 | [1-HOP ACOUSTIC] (Correlação: 0.46)
+     Nome  : Lost Sparks
+     Artista : Canyon City
+     Gênero  : acoustic
+     Razão : Direct acoustic similarity (0.46) [same genre] with 'Lost Sparks' by Canyon City
+
+
+Fila completa sem nenhum loop
+
