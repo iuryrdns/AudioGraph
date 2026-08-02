@@ -1,6 +1,4 @@
 """
-AudioGraph-AI Persistence Module
-
 Provides serialization/deserialization methods for saving and loading GraphEngine
 instances to/from disk using high-performance binary pickle files and GraphML exports.
 """
@@ -53,7 +51,9 @@ def load_graph(filepath: str) -> GraphEngine:
         graph = pickle.load(f)
 
     if not isinstance(graph, GraphEngine):
-        raise TypeError(f"Loaded object from '{filepath}' is not a GraphEngine instance.")
+        raise TypeError(
+            f"Loaded object from '{filepath}' is not a GraphEngine instance."
+        )
 
     return graph
 
