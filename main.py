@@ -1,19 +1,16 @@
-"""
-AudioGraph-AI Main CLI Demonstration Script
-"""
-
 import argparse
 import os
 import random
 import time
-from typing import Optional
 
 from src.graph.builder import get_or_build_graph
 from src.graph.recommender import AdaptiveRadioRecommender
 
 ENRICHED_DATASET_PATH = os.path.join("data", "spotify_tracks_dataset_itunes.csv")
 RAW_DATASET_PATH = os.path.join("data", "spotify_tracks_dataset.csv")
-DEFAULT_DATASET_PATH = ENRICHED_DATASET_PATH if os.path.exists(ENRICHED_DATASET_PATH) else RAW_DATASET_PATH
+DEFAULT_DATASET_PATH = (
+    ENRICHED_DATASET_PATH if os.path.exists(ENRICHED_DATASET_PATH) else RAW_DATASET_PATH
+)
 DEFAULT_CACHE_PATH = os.path.join("data", "spotify_graph_cache.pkl")
 
 
@@ -122,12 +119,14 @@ def main():
         top_k=300,
     )
     elapsed = time.time() - start_time
-    print(f"[+] Graph engine carregado com {len(graph)} músicas em {elapsed:.3f} segundos.")
+    print(
+        f"[+] Graph engine carregado com {len(graph)} músicas em {elapsed:.3f} segundos."
+    )
 
     # 1. Determine RNG Random Seed (from CLI or .env)
     env_random_seed = os.getenv("RANDOM_SEED") or os.getenv("RECOMMENDER_SEED")
     if args.random_seed is not None:
-        rng_seed: Optional[int] = args.random_seed
+        rng_seed: int | None = args.random_seed
     elif env_random_seed and env_random_seed.lower() not in ("random", "none", ""):
         try:
             rng_seed = int(env_random_seed)
@@ -159,12 +158,11 @@ def main():
     )
 
     # Unified SEED fallback parsing
-    if not target_seed_id and target_seed_index is None and unified_seed:
-        if unified_seed.lower() not in ("random", "none", ""):
-            if unified_seed in graph:
-                target_seed_id = unified_seed
-            elif unified_seed.isdigit() and int(unified_seed) < len(graph):
-                target_seed_index = int(unified_seed)
+    if not target_seed_id and target_seed_index is None and unified_seed and unified_seed.lower() not in ("random", "none", ""):
+      if unified_seed in graph:
+        target_seed_id = unified_seed
+      elif unified_seed.isdigit() and int(unified_seed) < len(graph):
+        target_seed_index = int(unified_seed)
 
     if target_seed_id and target_seed_id in graph:
         seed_track_id = target_seed_id
@@ -188,7 +186,9 @@ def main():
 
     for idx, rec in enumerate(stream, 1):
         meta = rec.track_metadata
-        print(f" #{idx:02d} | [{rec.recommendation_type.upper()}] (Correlação: {rec.score:.2f})")
+        print(
+            f" #{idx:02d} | [{rec.recommendation_type.upper()}] (Correlação: {rec.score:.2f})"
+        )
         print(f"     Nome  : {meta.get('track_name')}")
         print(f"     Artista : {meta.get('primary_artist')}")
         print(f"     Gênero  : {meta.get('track_genre')}")
