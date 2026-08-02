@@ -1,6 +1,4 @@
 """
-AudioGraph-AI Ground-Truth Verification Script
-
 Queries external authoritative music metadata APIs (iTunes Search API) to fetch
 real-world primary genres for recommendations and compares dataset genres against ground-truth.
 """
@@ -11,7 +9,6 @@ import sys
 import time
 import urllib.parse
 import urllib.request
-from typing import Dict, Optional
 
 # Add project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -23,12 +20,22 @@ DEFAULT_DATASET_PATH = os.path.join("data", "spotify_tracks_dataset.csv")
 DEFAULT_CACHE_PATH = os.path.join("data", "spotify_graph_cache.pkl")
 
 
-def fetch_itunes_metadata(artist: str, track_name: str) -> Optional[Dict[str, str]]:
+def clean_query_term(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    text = text.split(";")[0]
+    text = re.sub(r"\(.*?\)", "", text)
+    text = re.sub(r"\[.*?\]", "", text)
+    text = re.sub(r"\s+-\s+.*$", "", text)
+    return text.strip()
+
+
+def fetch_itunes_metadata(artist: str, track_name: str) -> dict[str, str] | None:
     """
     Queries iTunes Search API for authoritative track metadata and real-world primary genre.
     """
-    clean_artist = artist.split(";")[0].split(" feat")[0].strip()
-    clean_track = track_name.split("(")[0].split("-")[0].strip()
+    clean_artist = clean_query_term(artist)
+    clean_track = clean_query_term(track_name)
     query = f"{clean_artist} {clean_track}"
 
     url = f"https://itunes.apple.com/search?term={urllib.parse.quote(query)}&entity=song&limit=1"
@@ -76,7 +83,9 @@ def verify_recommendation_stream(seed_track_id: str, count: int = 10):
     seed_artist = seed_meta.get("primary_artist", "Unknown")
     dataset_seed_genre = seed_meta.get("track_genre", "Unknown")
 
-    print(f"\n[*] Fetching ground-truth data for seed track: '{seed_name}' by {seed_artist}...")
+    print(
+        f"\n[*] Fetching ground-truth data for seed track: '{seed_name}' by {seed_artist}..."
+    )
     itunes_seed = fetch_itunes_metadata(seed_artist, seed_name)
     real_seed_genre = itunes_seed.get("primary_genre") if itunes_seed else "Unknown"
 
@@ -95,8 +104,12 @@ def verify_recommendation_stream(seed_track_id: str, count: int = 10):
     # 2. Generate recommendations
     stream = recommender.recommend_stream(seed_track_id, count=count)
 
-    print(f"[*] Verifying {count} recommendations against real-world ground-truth API...\n")
-    print(f"{'#':<3} | {'TRACK NAME':<28} | {'ARTIST':<18} | {'DATASET GENRE':<14} | {'REAL-WORLD GENRE':<20}")
+    print(
+        f"[*] Verifying {count} recommendations against real-world ground-truth API...\n"
+    )
+    print(
+        f"{'#':<3} | {'TRACK NAME':<28} | {'ARTIST':<18} | {'DATASET GENRE':<14} | {'REAL-WORLD GENRE':<20}"
+    )
     print("-" * 95)
 
     for idx, rec in enumerate(stream, 1):
@@ -108,7 +121,9 @@ def verify_recommendation_stream(seed_track_id: str, count: int = 10):
         itunes_info = fetch_itunes_metadata(t_artist, t_name)
         real_genre = itunes_info.get("primary_genre", "N/A") if itunes_info else "N/A"
 
-        print(f"{idx:02d}  | {t_name:<28} | {t_artist:<18} | {ds_genre:<14} | {real_genre:<20}")
+        print(
+            f"{idx:02d}  | {t_name:<28} | {t_artist:<18} | {ds_genre:<14} | {real_genre:<20}"
+        )
         time.sleep(0.15)
 
     print("-" * 95)
@@ -116,5 +131,7 @@ def verify_recommendation_stream(seed_track_id: str, count: int = 10):
 
 
 if __name__ == "__main__":
-    seed = sys.argv[1] if len(sys.argv) > 1 else "4lghbrxf9haQUp6BuRjAEq"  # Default 'big talk'
+    seed = (
+        sys.argv[1] if len(sys.argv) > 1 else "4lghbrxf9haQUp6BuRjAEq"
+    )  # Default 'big talk'
     verify_recommendation_stream(seed, count=10)
