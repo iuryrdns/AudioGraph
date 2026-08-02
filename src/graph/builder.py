@@ -1,6 +1,4 @@
 """
-AudioGraph-AI Graph Builder Module
-
 Responsible for constructing the dual-layer heterogeneous recommendation graph.
 Computes batch Gaussian RBF weighted Euclidean similarity with super-genre compatibility anchoring,
 applies dual-pruning (threshold >= 0.3, top-k <= 300), builds SciPy CSR matrices and metadata indexes,
@@ -8,10 +6,12 @@ and provides one-time caching.
 """
 
 import os
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 import scipy.sparse as sp
 
+from src.config import BuilderConfig
 from src.graph.engine import GraphEngine
 from src.graph.loader import (
     FEATURE_COLUMNS,
@@ -21,39 +21,36 @@ from src.graph.loader import (
 from src.graph.persistence import load_graph, save_graph
 from src.graph.taxonomy import get_genre_compatibility
 
-# Domain importance weights for pure acoustic features
-DEFAULT_FEATURE_WEIGHTS: dict[str, float] = {
-    # High Importance (Rhythm, Speed, Energy & Mood)
-    "danceability": 2.5,
-    "energy": 2.5,
-    "valence": 1.5,
-    "tempo_norm": 2.5,
-    "acousticness": 2.0,
-    # Moderate Importance (Timbre & Vocal Presence)
-    "instrumentalness": 1.5,
-    "speechiness": 1.0,
-    "loudness_norm": 1.0,
-    "liveness": 0.5,
-}
+# Domain importance weights for pure acoustic features (backwards compatibility alias)
+DEFAULT_FEATURE_WEIGHTS: dict[str, float] = BuilderConfig().feature_weights
 
 
 def build_graph(
     dataset: TrackDataset,
-    feature_weights: Optional[dict[str, float]] = None,
-    threshold: float = 0.3,
-    top_k: int = 300,
-    batch_size: int = 1000,
+    feature_weights: dict[str, float] | None = None,
+    threshold: float | None = None,
+    top_k: int | None = None,
+    batch_size: int | None = None,
+    gamma: float | None = None,
+    config: BuilderConfig | None = None,
 ) -> GraphEngine:
     """
     Constructs a GraphEngine instance from a preprocessed TrackDataset.
     Applies Gaussian RBF Euclidean Distance and Super-Genre Compatibility Anchoring.
     """
-    weights_dict = feature_weights or DEFAULT_FEATURE_WEIGHTS
+    cfg = config or BuilderConfig()
+    weights_dict = (
+        feature_weights if feature_weights is not None else cfg.feature_weights
+    )
+    threshold_val = threshold if threshold is not None else cfg.threshold
+    top_k_val = top_k if top_k is not None else cfg.top_k
+    batch_size_val = batch_size if batch_size is not None else cfg.batch_size
+    gamma_val = gamma if gamma is not None else cfg.gamma
     N = len(dataset)
     track_genres = dataset.df["track_genre"].values.astype(str)
 
     # Pre-compute vectorized 2D Super-Genre Compatibility Matrix
-    unique_genres = sorted(list(set(track_genres)))
+    unique_genres = sorted(set(track_genres))
     genre_to_id = {g: i for i, g in enumerate(unique_genres)}
     genre_ids = np.array([genre_to_id[g] for g in track_genres], dtype=np.int32)
 
@@ -72,17 +69,15 @@ def build_graph(
 
     # 2. Weighted Feature Matrix calculation (X_W)
     X_W = dataset.X_scaled * sqrt_weights
-    X_W_sq_norms = np.sum(X_W ** 2, axis=1)
+    X_W_sq_norms = np.sum(X_W**2, axis=1)
 
     # 3. Chunked Similarity Matrix Calculation via Gaussian RBF & Vectorized Genre Compatibility
     rows: list[int] = []
     cols: list[int] = []
     values: list[float] = []
 
-    gamma = 2.0  # RBF distance scaling hyperparameter
-
-    for start_idx in range(0, N, batch_size):
-        end_idx = min(start_idx + batch_size, N)
+    for start_idx in range(0, N, batch_size_val):
+        end_idx = min(start_idx + batch_size_val, N)
         X_batch = X_W[start_idx:end_idx]
         batch_sq_norms = X_W_sq_norms[start_idx:end_idx, np.newaxis]
         batch_genre_ids = genre_ids[start_idx:end_idx]
@@ -94,7 +89,7 @@ def build_graph(
         dist = np.sqrt(dist_sq)
 
         # Raw Gaussian RBF similarity: S = exp(-gamma * dist)
-        S_raw = np.exp(-gamma * dist)
+        S_raw = np.exp(-gamma_val * dist)
 
         # Fast Vectorized Genre Compatibility Matrix Lookup
         G_batch = M_compat[batch_genre_ids][:, genre_ids]
@@ -111,7 +106,7 @@ def build_graph(
             sim_row[i_global] = -1.0
 
             # 1) Threshold pruning
-            candidate_indices = np.where(sim_row >= threshold)[0]
+            candidate_indices = np.where(sim_row >= threshold_val)[0]
 
             if len(candidate_indices) == 0:
                 continue
@@ -119,8 +114,10 @@ def build_graph(
             candidate_sims = sim_row[candidate_indices]
 
             # 2) Top-K directed degree capping
-            if len(candidate_indices) > top_k:
-                top_k_partition = np.argpartition(candidate_sims, -top_k)[-top_k:]
+            if len(candidate_indices) > top_k_val:
+                top_k_partition = np.argpartition(candidate_sims, -top_k_val)[
+                    -top_k_val:
+                ]
                 top_indices = candidate_indices[top_k_partition]
                 top_sims = candidate_sims[top_k_partition]
             else:
@@ -189,12 +186,14 @@ def build_graph(
 
 def get_or_build_graph(
     csv_path: str,
-    cache_path: Optional[str] = None,
+    cache_path: str | None = None,
     force_rebuild: bool = False,
-    feature_weights: Optional[dict[str, float]] = None,
-    threshold: float = 0.3,
-    top_k: int = 300,
-    batch_size: int = 1000,
+    feature_weights: dict[str, float] | None = None,
+    threshold: float | None = None,
+    top_k: int | None = None,
+    batch_size: int | None = None,
+    gamma: float | None = None,
+    config: BuilderConfig | None = None,
 ) -> GraphEngine:
     """
     Main entrypoint for obtaining a GraphEngine instance.
@@ -211,6 +210,8 @@ def get_or_build_graph(
         threshold=threshold,
         top_k=top_k,
         batch_size=batch_size,
+        gamma=gamma,
+        config=config,
     )
 
     if cache_path:
