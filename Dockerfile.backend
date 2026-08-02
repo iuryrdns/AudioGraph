@@ -1,0 +1,29 @@
+FROM python:3.12-slim-bookworm
+
+# Install uv binary for ultra-fast dependency installation
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency specifications first to maximize Docker layer caching
+COPY pyproject.toml README.md uv.lock* ./
+
+# Install Python dependencies using uv with cache mount
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system -r pyproject.toml
+
+# Copy source code after dependencies so code changes don't invalidate dependency cache
+COPY src/ src/
+COPY main.py .
+
+EXPOSE 8000
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+CMD ["uvicorn", "src.api.server:app", "--host", "0.0.0.0", "--port", "8000"]

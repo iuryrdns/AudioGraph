@@ -1,0 +1,83 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      network: host
+    container_name: audiograph-backend
+    network_mode: host
+    environment:
+      - RANDOM_SEED=42
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    profiles:
+      - dev
+      - prod
+
+  frontend:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+      network: host
+    container_name: audiograph-frontend
+    network_mode: host
+    environment:
+      - PYTHON_ENGINE_URL=http://127.0.0.1:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - dev
+      - prod
+
+  angie-dev:
+    image: docker.angie.software/angie:latest
+    container_name: audiograph-angie-dev
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./angie/angie-dev.conf:/etc/angie/angie.conf:ro
+      - ./angie/http.d/dev.conf:/etc/angie/http.d/dev.conf:ro
+      - ./angie/certs:/etc/angie/certs:ro
+    depends_on:
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  angie-prod:
+    image: docker.angie.software/angie:latest
+    container_name: audiograph-angie-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN_NAME=${DOMAIN_NAME:-example.com}
+      - ACME_EMAIL=${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - ./angie/angie-prod.conf:/etc/angie/angie.conf:ro
+      - ./angie/http.d/prod.conf:/etc/angie/http.d/prod.conf:ro
+      - angie_acme_data:/var/lib/angie/acme
+    depends_on:
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - prod
+
+volumes:
+  angie_acme_data:
