@@ -1,5 +1,7 @@
 import argparse
+import csv
 import os
+import random
 import time
 from dataclasses import dataclass
 
@@ -10,6 +12,7 @@ from src.graph.recommender import AdaptiveRadioRecommender
 
 DEFAULT_DATASET_PATH = os.path.join("data", "small_spotify_tracks_dataset.csv")
 DEFAULT_CACHE_PATH = os.path.join("data", "small_spotify_graph_cache.pkl")
+DEFAULT_OUTPUT_CSV = os.path.join("data", "evaluation_results.csv")
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,8 @@ class TransitionMetric:
 
 @dataclass(frozen=True)
 class EvaluationResult:
+    seed_index: int
+    seed_track_id: str
     sequence_ids: list[str]
     transitions: list[TransitionMetric]
     average_similarity: float
@@ -39,7 +44,7 @@ class EvaluationResult:
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Avaliação do recomendador usando dataset small"
+        description="Avaliação do recomendador gerando múltiplas amostras para análise."
     )
 
     parser.add_argument(
@@ -56,11 +61,13 @@ def parse_args():
         "--count",
         type=int,
         default=10,
+        help="Quantidade de recomendações por sequência",
     )
     parser.add_argument(
         "--seed-index",
         type=int,
         default=0,
+        help="Índice inicial da música semente",
     )
     parser.add_argument(
         "--random-seed",
@@ -80,6 +87,25 @@ def parse_args():
     parser.add_argument(
         "--rebuild",
         action="store_true",
+    )
+    parser.add_argument(
+        "--output-csv",
+        type=str,
+        default=DEFAULT_OUTPUT_CSV,
+        help="Caminho do arquivo CSV onde os resultados serão salvos.",
+    )
+    parser.add_argument(
+        "--num-samples",
+        type=int,
+        default=50,
+        help="Quantidade de amostras/rodadas a serem geradas e salvas no CSV.",
+    )
+    parser.add_argument(
+        "--sample-mode",
+        type=str,
+        choices=["random", "range"],
+        default="random",
+        help="Modo de escolha das seeds: 'random' (sorteia músicas) ou 'range' (sequencial).",
     )
 
     return parser.parse_args()
@@ -192,6 +218,7 @@ def calculate_graph_metrics(
 
 def evaluate(
     graph,
+    seed_index: int,
     seed_track_id: str,
     count: int,
     random_seed: int,
@@ -250,6 +277,8 @@ def evaluate(
         )
 
     return EvaluationResult(
+        seed_index=seed_index,
+        seed_track_id=seed_track_id,
         sequence_ids=sequence_ids,
         transitions=transitions,
         average_similarity=average_similarity,
@@ -266,88 +295,62 @@ def evaluate(
     )
 
 
-def print_track(
-    graph,
-    position: int,
-    track_id: str,
-):
-    metadata = graph.get_metadata(track_id)
-    track_name = metadata.get("track_name", track_id)
-    artist = metadata.get(
-        "primary_artist",
-        metadata.get("artists", "Unknown"),
-    )
-    genre = metadata.get("track_genre", "Unknown")
+def export_to_csv(result: EvaluationResult, args, output_csv_path: str, current_seed: int):
+    dirname = os.path.dirname(output_csv_path)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
 
-    print(f"{position:02d}. {track_name}")
-    print(f"    Artista: {artist}")
-    print(f"    Gênero : {genre}")
+    file_exists = os.path.exists(output_csv_path)
 
+    fieldnames = [
+        "timestamp",
+        "random_seed",
+        "threshold",
+        "top_k",
+        "requested_count",
+        "seed_index",
+        "seed_track_id",
+        "sequence_len",
+        "average_similarity",
+        "minimum_similarity",
+        "maximum_similarity",
+        "average_cost",
+        "diversity",
+        "graph_coverage",
+        "graph_density",
+        "average_degree",
+        "build_time_seconds",
+        "recommendation_time_seconds",
+        "recommendation_types",
+    ]
 
-def print_result(
-    graph,
-    result: EvaluationResult,
-):
-    print()
-    print("=" * 70)
-    print("SEQUÊNCIA GERADA")
-    print("=" * 70)
+    row_data = {
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "random_seed": current_seed,
+        "threshold": args.threshold,
+        "top_k": args.top_k,
+        "requested_count": args.count,
+        "seed_index": result.seed_index,
+        "seed_track_id": result.seed_track_id,
+        "sequence_len": len(result.sequence_ids),
+        "average_similarity": round(result.average_similarity, 6),
+        "minimum_similarity": round(result.minimum_similarity, 6),
+        "maximum_similarity": round(result.maximum_similarity, 6),
+        "average_cost": round(result.average_cost, 6),
+        "diversity": round(result.diversity, 6),
+        "graph_coverage": round(result.graph_coverage, 6),
+        "graph_density": round(result.graph_density, 6),
+        "average_degree": round(result.average_degree, 6),
+        "build_time_seconds": round(result.build_time_seconds, 6),
+        "recommendation_time_seconds": round(result.recommendation_time_seconds, 6),
+        "recommendation_types": str(result.recommendation_types),
+    }
 
-    for position, track_id in enumerate(result.sequence_ids, start=1):
-        print_track(
-            graph=graph,
-            position=position,
-            track_id=track_id,
-        )
-
-    print()
-    print("=" * 70)
-    print("SIMILARIDADE ENTRE TRANSIÇÕES")
-    print("=" * 70)
-
-    for position, transition in enumerate(result.transitions, start=1):
-        source = graph.get_metadata(transition.source_id)
-        target = graph.get_metadata(transition.target_id)
-        source_name = source.get("track_name", transition.source_id)
-        target_name = target.get("track_name", transition.target_id)
-
-        print(f"{position:02d}. {source_name}")
-        print(f"    → {target_name}")
-        print(f"    Similaridade: {transition.similarity:.4f}")
-        print(f"    Custo      : {transition.cost:.4f}")
-
-    print()
-    print("=" * 70)
-    print("MÉTRICAS DA SEQUÊNCIA")
-    print("=" * 70)
-    print(f"Similaridade média : {result.average_similarity:.4f}")
-    print(f"Similaridade mínima: {result.minimum_similarity:.4f}")
-    print(f"Similaridade máxima: {result.maximum_similarity:.4f}")
-    print(f"Custo médio        : {result.average_cost:.4f}")
-    print(f"Diversidade média  : {result.diversity:.4f}")
-
-    print()
-    print("=" * 70)
-    print("MÉTRICAS DO GRAFO")
-    print("=" * 70)
-    print(f"Cobertura de nós   : {result.graph_coverage:.2%}")
-    print(f"Densidade          : {result.graph_density:.6f}")
-    print(f"Grau médio         : {result.average_degree:.2f}")
-
-    print()
-    print("=" * 70)
-    print("TIPOS DE RECOMENDAÇÃO")
-    print("=" * 70)
-
-    for recommendation_type, count in result.recommendation_types.items():
-        print(f"{recommendation_type}: {count}")
-
-    print()
-    print("=" * 70)
-    print("DESEMPENHO")
-    print("=" * 70)
-    print(f"Tempo de construção: {result.build_time_seconds:.4f}s")
-    print(f"Tempo de recomendação: {result.recommendation_time_seconds:.4f}s")
+    with open(output_csv_path, mode="a", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row_data)
 
 
 def main():
@@ -368,24 +371,49 @@ def main():
 
     build_time_seconds = time.perf_counter() - build_start
 
-    if len(graph) == 0:
+    total_nodes = len(graph)
+    if total_nodes == 0:
         raise RuntimeError("O grafo foi construído sem músicas.")
 
-    seed_index = min(max(args.seed_index, 0), len(graph) - 1)
-    seed_track_id = str(graph.idx_to_id[seed_index])
+    print(f"Grafo pronto com {total_nodes} nós.")
+    print(f"Gerando {args.num_samples} amostra(s) de recomendação...\n")
 
-    result = evaluate(
-        graph=graph,
-        seed_track_id=seed_track_id,
-        count=args.count,
-        random_seed=args.random_seed,
-        build_time_seconds=build_time_seconds,
-    )
+    random.seed(args.random_seed)
 
-    print_result(
-        graph=graph,
-        result=result,
-    )
+    for i in range(args.num_samples):
+        if args.sample_mode == "random":
+            seed_index = random.randint(0, total_nodes - 1)
+        else:
+            seed_index = (args.seed_index + i) % total_nodes
+
+        seed_track_id = str(graph.idx_to_id[seed_index])
+        
+        current_run_seed = args.random_seed + i
+
+        result = evaluate(
+            graph=graph,
+            seed_index=seed_index,
+            seed_track_id=seed_track_id,
+            count=args.count,
+            random_seed=current_run_seed,
+            build_time_seconds=build_time_seconds,
+        )
+
+        export_to_csv(
+            result=result,
+            args=args,
+            output_csv_path=args.output_csv,
+            current_seed=current_run_seed,
+        )
+
+        print(
+            f"[{i + 1:03d}/{args.num_samples:03d}] Seed #{seed_index} -> "
+            f"Sim. Média: {result.average_similarity:.4f} | "
+            f"Diversidade: {result.diversity:.4f} | "
+            f"Tempo: {result.recommendation_time_seconds*1000:.2f}ms"
+        )
+
+    print(f"\n[CSV] {args.num_samples} amostra(s) salvas com sucesso em: {args.output_csv}")
 
 
 if __name__ == "__main__":
