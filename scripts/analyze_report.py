@@ -54,7 +54,7 @@ def gerar_relatorio_visual(caminho_csv: str):
     axes[1].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     
     plt.tight_layout()
-    fig1.savefig('data/1_qualidade_e_diversidade.png', dpi=300)
+    fig1.savefig('data/charts/1_qualidade_e_diversidade.png', dpi=300)
     
     fig2, axes = plt.subplots(1, 2, figsize=(14, 5))
     
@@ -83,7 +83,7 @@ def gerar_relatorio_visual(caminho_csv: str):
     axes[1].set_ylabel('Custo Médio')
 
     plt.tight_layout()
-    fig2.savefig('data/2_custo_e_grafo.png', dpi=300)
+    fig2.savefig('data/charts/2_custo_e_grafo.png', dpi=300)
 
     fig3, axes = plt.subplots(1, 2, figsize=(14, 5))
     
@@ -101,7 +101,7 @@ def gerar_relatorio_visual(caminho_csv: str):
         axes[1].set_ylabel('Threshold')
 
     plt.tight_layout()
-    fig3.savefig('data/3_hiperparametros.png', dpi=300)
+    fig3.savefig('data/charts/3_hiperparametros.png', dpi=300)
 
 
     fig4, axes = plt.subplots(1, 2, figsize=(14, 5))
@@ -130,7 +130,7 @@ def gerar_relatorio_visual(caminho_csv: str):
     axes[1].set_ylabel('Tempo de Construção do Grafo (s)')
 
     plt.tight_layout()
-    fig4.savefig('data/4_desempenho_tempos.png', dpi=300)
+    fig4.savefig('data/charts/4_desempenho_tempos.png', dpi=300)
 
     plt.show()
 
