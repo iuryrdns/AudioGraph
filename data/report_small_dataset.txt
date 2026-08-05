@@ -1,0 +1,20 @@
+      Tipo           Coluna Média População Média Amostra Diferença (%) p-valor (Média - t-test)  p-valor (Distribuição - KS) Representativa?
+  Numérica       popularity         33.2385        33.576          1.02                   0.6428                       0.7773             SIM
+  Numérica      duration_ms     228029.1531    227007.231          0.45                   0.7156                       0.2955             SIM
+  Numérica     danceability          0.5668        0.5721          0.93                   0.3349                       0.1136             SIM
+  Numérica           energy          0.6414        0.6408          0.09                   0.9413                       0.7786             SIM
+  Numérica              key          5.3091         5.426           2.2                   0.3036                       0.9015             SIM
+  Numérica         loudness          -8.259       -8.3042          0.55                   0.7905                       0.2824             SIM
+  Numérica             mode          0.6376         0.623          2.28                   0.3449                       0.9828             SIM
+  Numérica      speechiness          0.0847        0.0898          6.11                   0.1629                       0.3685             SIM
+  Numérica     acousticness          0.3149         0.311          1.25                   0.7068                       0.5514             SIM
+  Numérica instrumentalness           0.156        0.1562           0.1                   0.9868                       0.9197             SIM
+  Numérica         liveness          0.2136        0.2183          2.23                   0.4448                       0.4090             SIM
+  Numérica          valence          0.4741        0.4763          0.46                   0.7927                       0.9879             SIM
+  Numérica            tempo        122.1478      122.3406          0.16                    0.836                       0.7817             SIM
+  Numérica   time_signature           3.904         3.912           0.2                   0.5291                       1.0000             SIM
+Categórica         explicit               -             -             -                        -                       0.1575             SIM
+Categórica             mode               -             -             -                        -                       0.3384             SIM
+Categórica              key               -             -             -                        -                       0.3157             SIM
+Categórica   time_signature               -             -             -                        -                       0.8113             SIM
+Categórica      track_genre               -             -             -                        -                       1.0000             SIM
