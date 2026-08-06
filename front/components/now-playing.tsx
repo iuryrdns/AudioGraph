@@ -23,10 +23,15 @@ export function NowPlaying({ node, path, isPlaying, childrenCount, onExpand, onO
           alt={`Capa de ${node.track.album || node.track.name}`}
           className="size-56 rounded-2xl border border-border object-cover shadow-2xl sm:size-72"
         />
-        {isPlaying && (
+        {isPlaying ? (
           <span className="absolute -bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 font-mono text-[10px] uppercase tracking-widest text-primary shadow-lg">
             <AudioLines className="size-3 animate-pulse" aria-hidden="true" />
             tocando
+          </span>
+        ) : (
+          <span className="absolute -bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground shadow-lg">
+            <AudioLines className="size-3" aria-hidden="true" />
+            pausado
           </span>
         )}
       </div>
