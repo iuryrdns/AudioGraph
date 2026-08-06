@@ -3,9 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-      network: host
     container_name: audiograph-backend
-    network_mode: host
+    ports:
+      - "8000:8000"
     environment:
       - RANDOM_SEED=42
     volumes:
@@ -17,7 +17,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 120s
     profiles:
       - dev
       - prod
@@ -26,18 +26,40 @@ services:
     build:
       context: ./front
       dockerfile: Dockerfile
-      network: host
     container_name: audiograph-frontend
-    network_mode: host
+    ports:
+      - "3000:3000"
     environment:
-      - PYTHON_ENGINE_URL=http://127.0.0.1:8000
+      - PYTHON_ENGINE_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - prod
+
+  frontend-dev:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+      target: dev
+    container_name: audiograph-frontend-dev
+    ports:
+      - "3000:3000"
+    environment:
+      - PYTHON_ENGINE_URL=http://backend:8000
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
+    volumes:
+      - ./front:/app
+      - /app/node_modules
+      - /app/.next
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
     profiles:
       - dev
-      - prod
 
   angie-dev:
     image: docker.angie.software/angie:latest
@@ -49,7 +71,7 @@ services:
       - ./angie/http.d/dev.conf:/etc/angie/http.d/dev.conf:ro
       - ./angie/certs:/etc/angie/certs:ro
     depends_on:
-      frontend:
+      frontend-dev:
         condition: service_started
       backend:
         condition: service_healthy

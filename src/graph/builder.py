@@ -13,11 +13,7 @@ import scipy.sparse as sp
 
 from src.config import BuilderConfig
 from src.graph.engine import GraphEngine
-from src.graph.loader import (
-    FEATURE_COLUMNS,
-    TrackDataset,
-    load_and_preprocess_dataset,
-)
+from src.graph.loader import TrackDataset, load_and_preprocess_dataset
 from src.graph.persistence import load_graph, save_graph
 from src.graph.taxonomy import get_genre_compatibility
 
@@ -61,8 +57,11 @@ def build_graph(
             M_compat[i, j] = get_genre_compatibility(g1, g2)
 
     # 1. Prepare Feature Weight Vector
+    # Uses dataset.feature_columns (not the static FEATURE_COLUMNS import) so
+    # this same builder works for both the Spotify-derived engine and the
+    # real-audio (librosa) engine — any column missing a weight defaults to 1.0.
     weight_vector = np.array(
-        [weights_dict.get(feat, 1.0) for feat in FEATURE_COLUMNS],
+        [weights_dict.get(feat, 1.0) for feat in dataset.feature_columns],
         dtype=np.float32,
     )
     sqrt_weights = np.sqrt(weight_vector)
@@ -194,16 +193,21 @@ def get_or_build_graph(
     batch_size: int | None = None,
     gamma: float | None = None,
     config: BuilderConfig | None = None,
+    source: str = "spotify",
 ) -> GraphEngine:
     """
     Main entrypoint for obtaining a GraphEngine instance.
     Checks if a cached graph file exists at cache_path. If so, loads it directly.
     Otherwise, builds the graph from csv_path, caches it to cache_path, and returns it.
+
+    `source` selects which feature set to build the similarity vector from
+    ("spotify" pre-computed columns, or "audio" librosa-extracted features —
+    see src/graph/loader.py::load_and_preprocess_dataset).
     """
     if cache_path and os.path.exists(cache_path) and not force_rebuild:
         return load_graph(cache_path)
 
-    dataset = load_and_preprocess_dataset(csv_path)
+    dataset = load_and_preprocess_dataset(csv_path, source=source)
     graph = build_graph(
         dataset=dataset,
         feature_weights=feature_weights,
