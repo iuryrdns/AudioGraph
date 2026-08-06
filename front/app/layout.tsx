@@ -6,7 +6,7 @@ const _spaceGrotesk = Space_Grotesk({ subsets: ['latin'] })
 const _jetbrainsMono = JetBrains_Mono({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Grafo de Recomendação Musical',
+  title: 'AudioGraph',
   description:
     'Digite uma música e explore um grafo de recomendações do iTunes, ouça os previews e treine o grafo curtindo ou descartando cada sugestão.',
   generator: 'v0.app',
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
         media: '(prefers-color-scheme: dark)',
       },
       {
-        url: '/icon.svg',
+        url: '/gemini-svg.svg',
         type: 'image/svg+xml',
       },
     ],
