@@ -66,7 +66,7 @@ export function SongSearch({ onPick, disabled, engineMode = "itunes" }: Props) {
 
   return (
     <div ref={containerRef} className="relative w-full">
-      <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 focus-within:border-primary/60 focus-within:ring-3 focus-within:ring-ring/30">
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-2 py-2 focus-within:border-primary/60 focus-within:ring-3 focus-within:ring-ring/30">
         {loading ? (
           <Loader2 className="size-4 animate-spin text-primary" aria-hidden="true" />
         ) : (
@@ -82,7 +82,7 @@ export function SongSearch({ onPick, disabled, engineMode = "itunes" }: Props) {
             if (event.key === "Escape") setOpen(false)
           }}
           disabled={disabled}
-          placeholder="Digite uma música ou artista (ex: Blinding Lights)"
+          placeholder="Digite uma música ou artista"
           aria-label="Buscar música"
           className="h-6 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
         />
