@@ -1,6 +1,6 @@
 "use client"
 
-import { Cpu, Globe, Server } from "lucide-react"
+import { AudioWaveform, Cpu, Globe, Server } from "lucide-react"
 import { useEffect, useState } from "react"
 
 export type EngineMode = "itunes" | "python"
@@ -42,7 +42,7 @@ export function EngineToggle({ mode, onChange }: Props) {
             : "text-muted-foreground hover:text-foreground"
         }`}
       >
-        <Globe className="size-3.5" />
+        <AudioWaveform className="size-3.5" />
         <span>iTunes Live</span>
       </button>
 
@@ -60,9 +60,9 @@ export function EngineToggle({ mode, onChange }: Props) {
           <span
             className={`absolute -top-0.5 -right-0.5 size-1.5 rounded-full ${
               pythonOnline === true
-                ? "bg-emerald-400 animate-pulse"
+                ? "bg-green-600 [animation:blink_1.5s_ease-in-out_infinite] border border-card"
                 : pythonOnline === false
-                ? "bg-amber-400"
+                ? "bg-red-700"
                 : "bg-muted-foreground"
             }`}
             title={
