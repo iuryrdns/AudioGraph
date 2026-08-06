@@ -2,6 +2,7 @@
 
 import {
   FastForward,
+  HelpCircle,
   Keyboard,
   Loader2,
   Pause,
@@ -9,7 +10,6 @@ import {
   Rewind,
   SkipBack,
   SkipForward,
-  Sparkles,
   ThumbsDown,
   ThumbsUp,
   Volume2,
@@ -40,6 +40,41 @@ type Props = {
   onOpenShortcuts?: () => void
 }
 
+function AutoPlayToggleIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="37"
+      height="34"
+      viewBox="0 0 57 32"
+      className="size-auto shrink-0"
+      aria-hidden="true"
+    >
+      <rect
+        x="0"
+        y="0"
+        width="57"
+        height="32"
+        rx="16"
+        className={active ? "fill-primary" : "fill-muted"}
+      />
+      <circle
+        cx={active ? 40 : 16}
+        cy="16"
+        r="14"
+        className="fill-background transition-all"
+      />
+      {active ? (
+        <path d="M36 11 L45 16 L36 21 Z" className="fill-primary" />
+      ) : (
+        <>
+          <rect x="12.6" y="10.6" width="3.6" height="10.8" rx="1" className="fill-muted-foreground" />
+          <rect x="18.6" y="10.6" width="3.6" height="10.8" rx="1" className="fill-muted-foreground" />
+        </>
+      )}
+    </svg>
+  )
+}
+
 export function PlayerBar({
   node,
   isPlaying,
@@ -62,7 +97,7 @@ export function PlayerBar({
 }: Props) {
   return (
     <footer className="shrink-0 border-t border-border bg-card/60 px-4 py-3 backdrop-blur md:px-6">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:gap-6">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-1">
         <div className="flex min-w-0 items-center gap-3 lg:w-64">
           <img
             src={node.track.artwork || "/placeholder.svg"}
@@ -75,7 +110,7 @@ export function PlayerBar({
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-2 lg:px-6">
           <div className="flex items-center justify-center gap-1.5">
             <Button size="icon" variant="ghost" aria-label="Faixa anterior" disabled={!hasPrevious} onClick={onPrevious}>
               <SkipBack aria-hidden="true" />
@@ -113,7 +148,7 @@ export function PlayerBar({
           />
         </div>
 
-        <div className="flex items-center justify-center gap-2 lg:w-80 lg:justify-end">
+        <div className="flex items-center justify-center gap-3 lg:w-auto lg:shrink-0 lg:justify-end">
           {/* Volume Control */}
           <div className="flex items-center gap-1.5 mr-2">
             <Button
@@ -157,18 +192,18 @@ export function PlayerBar({
             onClick={() => onFeedback("dislike")}
           >
             <ThumbsDown aria-hidden="true" />
-            Não
+            Não Gostei
           </Button>
           <Button
             size="icon"
-            variant={autoPlay ? "secondary" : "ghost"}
-            className="size-9"
+            variant="ghost"
+            className="h-10 w-13 p-0"
             aria-label="Auto-play das recomendações"
             aria-pressed={autoPlay}
             title={autoPlay ? "Auto-play ligado" : "Auto-play desligado"}
             onClick={onToggleAutoPlay}
           >
-            <Sparkles className={autoPlay ? "text-primary" : undefined} aria-hidden="true" />
+            <AutoPlayToggleIcon active={autoPlay} />
           </Button>
 
           {onOpenShortcuts && (
@@ -179,7 +214,7 @@ export function PlayerBar({
               title="Atalhos do teclado"
               onClick={onOpenShortcuts}
             >
-              <Keyboard className="size-4" />
+              <HelpCircle className="size-5" />
             </Button>
           )}
         </div>
