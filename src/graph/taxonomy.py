@@ -3,6 +3,20 @@ Categorizes raw Spotify sub-genres into cohesive Super-Genre Families
 and provides compatibility distance matrices for graph edge filtering.
 """
 
+import unicodedata
+
+
+def _normalize(text: str) -> str:
+    """
+    Lowercases and strips diacritics so tag variants like
+    'forró' / 'forro' or 'música' / 'musica' resolve to the same key.
+    Without this, accented tags silently fall through to 'OTHER'.
+    """
+    text = str(text).lower().strip()
+    text = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in text if not unicodedata.combining(c))
+
+
 SUPER_GENRE_MAP: dict[str, str] = {
     # ACOUSTIC / INDIE / SAD / CHILL
     "acoustic": "ACOUSTIC_INDIE",
@@ -21,7 +35,7 @@ SUPER_GENRE_MAP: dict[str, str] = {
     "romance": "ACOUSTIC_INDIE",
     # CLASSICAL / AMBIENT / PIANO / SLEEP
     "classical": "CLASSICAL_AMBIENT",
-    "clássica": "CLASSICAL_AMBIENT",
+    "classica": "CLASSICAL_AMBIENT",
     "ambient": "CLASSICAL_AMBIENT",
     "piano": "CLASSICAL_AMBIENT",
     "sleep": "CLASSICAL_AMBIENT",
@@ -104,7 +118,7 @@ SUPER_GENRE_MAP: dict[str, str] = {
     "r&b/soul": "HIPHOP_URBAN",
     "soul": "HIPHOP_URBAN",
     "soul & funk": "HIPHOP_URBAN",
-    "soul contemporâneo": "HIPHOP_URBAN",
+    "soul contemporaneo": "HIPHOP_URBAN",
     "funk": "HIPHOP_URBAN",
     "groove": "HIPHOP_URBAN",
     # REGGAE / DUB / DANCEHALL / SKA / LATIN
@@ -113,11 +127,10 @@ SUPER_GENRE_MAP: dict[str, str] = {
     "dancehall": "REGGAE_DUB",
     "ska": "REGGAE_DUB",
     "afrobeat": "REGGAE_DUB",
-    "música africana": "REGGAE_DUB",
     "musica africana": "REGGAE_DUB",
     "cumbia": "SPANISH_LATIN_URBAN",
-    "folklore latino-américain": "SPANISH_LATIN_URBAN",
-    "norteño": "SPANISH_LATIN_URBAN",
+    "folklore latino-americain": "SPANISH_LATIN_URBAN",
+    "norteno": "SPANISH_LATIN_URBAN",
     "bolero": "SPANISH_LATIN_URBAN",
     "ranchera": "SPANISH_LATIN_URBAN",
     "flamenco": "SPANISH_LATIN_URBAN",
@@ -127,10 +140,13 @@ SUPER_GENRE_MAP: dict[str, str] = {
     "reggaeton": "SPANISH_LATIN_URBAN",
     "salsa": "SPANISH_LATIN_URBAN",
     "tango": "SPANISH_LATIN_URBAN",
-    # BRAZILIAN FORRÓ / AXÉ / SERTANEJO / MPB / SAMBA
+    # BRAZILIAN FORRÓ / AXÉ / SERTANEJO / PISADINHA / MPB / SAMBA
     "forro": "BRAZILIAN_FORRO_AXE",
-    "axé/forró": "BRAZILIAN_FORRO_AXE",
+    "axe/forro": "BRAZILIAN_FORRO_AXE",
     "sertanejo": "BRAZILIAN_SERTANEJO",
+    "pisadinha": "BRAZILIAN_PISADINHA",
+    "piseiro": "BRAZILIAN_PISADINHA",
+    "forro eletronico": "BRAZILIAN_PISADINHA",
     "brazil": "BRAZILIAN_MPB_SAMBA_ROCK",
     "mpb": "BRAZILIAN_MPB_SAMBA_ROCK",
     "samba": "BRAZILIAN_MPB_SAMBA_ROCK",
@@ -154,16 +170,14 @@ SUPER_GENRE_MAP: dict[str, str] = {
     "filmes/games": "WORLD_MEDIA",
     "soundtrack": "WORLD_MEDIA",
     "comedy": "WORLD_MEDIA",
-    "comédia": "WORLD_MEDIA",
+    "comedia": "WORLD_MEDIA",
     "spoken word": "WORLD_MEDIA",
     "holiday": "WORLD_MEDIA",
-    "música religiosa": "WORLD_MEDIA",
+    "musica religiosa": "WORLD_MEDIA",
     "indian": "WORLD_MEDIA",
     "indian-folk": "WORLD_MEDIA",
     "indian folk": "WORLD_MEDIA",
-    "música indiana": "WORLD_MEDIA",
     "musica indiana": "WORLD_MEDIA",
-    "música asiática": "WORLD_MEDIA",
     "musica asiatica": "WORLD_MEDIA",
     "bollywood": "WORLD_MEDIA",
     "indian pop": "WORLD_MEDIA",
@@ -178,13 +192,18 @@ SUPER_GENRE_MAP: dict[str, str] = {
     "world music": "WORLD_MEDIA",
 }
 
+# Pre-normalized lookup built once at import time. This is what makes
+# accented / non-accented tag variants ("forró" vs "forro") resolve to
+# the same super-genre without needing duplicate entries above.
+_NORMALIZED_MAP: dict[str, str] = {_normalize(k): v for k, v in SUPER_GENRE_MAP.items()}
+
 
 def get_super_genre(genre: str) -> str:
     """
     Returns the Super-Genre Family for a given sub-genre.
     Defaults to 'OTHER' if genre is unknown.
     """
-    return SUPER_GENRE_MAP.get(str(genre).lower(), "OTHER")
+    return _NORMALIZED_MAP.get(_normalize(genre), "OTHER")
 
 
 def get_genre_compatibility(genre1: str, genre2: str) -> float:
@@ -203,8 +222,8 @@ def get_genre_compatibility(genre1: str, genre2: str) -> float:
     float
         1.0 for identical genres, 0.85 for same Super-Genre family, 0.15 for distant.
     """
-    g1 = str(genre1).lower()
-    g2 = str(genre2).lower()
+    g1 = _normalize(genre1)
+    g2 = _normalize(genre2)
 
     if g1 == g2:
         return 1.0
@@ -227,6 +246,11 @@ def get_genre_compatibility(genre1: str, genre2: str) -> float:
         ("ROCK_METAL", "BRAZILIAN_MPB_SAMBA_ROCK"): 0.60,
         ("HIPHOP_URBAN", "REGGAE_DUB"): 0.50,
         ("HIPHOP_URBAN", "SPANISH_LATIN_URBAN"): 0.50,
+        # Pisadinha/piseiro shares roots with forró and with sertanejo,
+        # but its heavily electronic production sits closer to sertanejo
+        # universitário than to acoustic pé-de-serra forró.
+        ("BRAZILIAN_PISADINHA", "BRAZILIAN_SERTANEJO"): 0.55,
+        ("BRAZILIAN_PISADINHA", "BRAZILIAN_FORRO_AXE"): 0.45,
         ("BRAZILIAN_SERTANEJO", "BRAZILIAN_FORRO_AXE"): 0.40,
         ("BRAZILIAN_MPB_SAMBA_ROCK", "BRAZILIAN_SERTANEJO"): 0.30,
     }
@@ -237,3 +261,75 @@ def get_genre_compatibility(genre1: str, genre2: str) -> float:
         return adjacent_pairs[(sg2, sg1)]
 
     return 0.15
+
+
+# --- Audio-feature tiebreaker -------------------------------------------
+#
+# Some Spotify genre tags are too coarse to separate real sub-styles.
+# "forro" is the clearest example: it covers everything from acoustic
+# pé-de-serra (Luiz Gonzaga, Dominguinhos, loudness ~ -8 to -10 dB) to
+# heavily produced modern piseiro (Barões da Pisadinha, Henry Freitas,
+# loudness ~ -2 to -4 dB). Two tracks can share the exact same
+# track_genre string and still sound nothing alike. get_genre_compatibility()
+# can't see this — it only has text. get_track_compatibility() below adds
+# audio features as a tiebreaker on top of it, so an identical tag no
+# longer guarantees a 1.0 score if the tracks are sonically far apart.
+
+# Normalization ranges taken from typical Spotify audio-feature bounds.
+_FEATURE_RANGES = {
+    "danceability": (0.0, 1.0),
+    "energy": (0.0, 1.0),
+    "acousticness": (0.0, 1.0),
+    "valence": (0.0, 1.0),
+    "loudness": (-40.0, 0.0),   # dB, most tracks fall in this band
+    "tempo": (60.0, 200.0),     # bpm
+}
+
+# How much a track's genre tag alone is trusted vs. its acoustic signature.
+# Lower this if genre tags in your dataset are known to be coarse/noisy.
+_GENRE_TRUST = 0.55
+
+
+def _scale(value: float, feature: str) -> float:
+    lo, hi = _FEATURE_RANGES[feature]
+    return max(0.0, min(1.0, (float(value) - lo) / (hi - lo)))
+
+
+def audio_feature_similarity(features1: dict, features2: dict) -> float:
+    """
+    0.0 (opposite production style) to 1.0 (near-identical) similarity
+    based on Spotify audio features. Missing features are skipped.
+    """
+    used = [f for f in _FEATURE_RANGES if f in features1 and f in features2]
+    if not used:
+        return 1.0  # no data to disagree with -> don't penalize
+
+    diffs = [abs(_scale(features1[f], f) - _scale(features2[f], f)) for f in used]
+    mean_diff = sum(diffs) / len(diffs)
+    return 1.0 - mean_diff
+
+
+def get_track_compatibility(
+    genre1: str,
+    genre2: str,
+    features1: dict | None = None,
+    features2: dict | None = None,
+) -> float:
+    """
+    Full edge-weight used for graph filtering: genre_compatibility blended
+    with audio-feature similarity, so a matching genre tag on two sonically
+    very different tracks (e.g. Dominguinhos vs. Barões da Pisadinha, both
+    tagged "forro") doesn't automatically score 1.0.
+    """
+    genre_score = get_genre_compatibility(genre1, genre2)
+
+    if not features1 or not features2:
+        return genre_score
+
+    audio_score = audio_feature_similarity(features1, features2)
+
+    # Genre sets the baseline; audio similarity pulls it up or down.
+    # A perfect genre match with very different audio features settles
+    # around GENRE_TRUST instead of staying pinned at 1.0.
+    blended = genre_score * (1 - _GENRE_TRUST) + (genre_score * audio_score) * _GENRE_TRUST
+    return round(max(0.1, min(1.0, blended)), 3)
