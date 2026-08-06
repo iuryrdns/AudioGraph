@@ -240,11 +240,14 @@ export function RecommendationGraph({
       setTick((t) => t + 1)
       return
     }
-    if (panRef.current) {
+    const pan = panRef.current
+    if (pan) {
+      const dx = event.clientX - pan.x
+      const dy = event.clientY - pan.y
       setView((v) => ({
         ...v,
-        x: v.x + event.clientX - panRef.current!.x,
-        y: v.y + event.clientY - panRef.current!.y,
+        x: v.x + dx,
+        y: v.y + dy,
       }))
       panRef.current = { x: event.clientX, y: event.clientY }
     }
