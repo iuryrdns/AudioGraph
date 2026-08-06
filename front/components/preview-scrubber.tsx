@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react"
 
 type Props = {
-  trackId: number
+  trackId: number | string
   currentTime: number
   duration: number
   onSeek: (time: number) => void
@@ -13,10 +13,26 @@ type Props = {
 
 const BARS = 56
 
+/**
+ * Hash simples (FNV-1a) que funciona tanto pra IDs numéricos (iTunes, ex:
+ * 903912630) quanto pra IDs alfanuméricos (Spotify/grafo Python, ex:
+ * "5cqdwnYqRTB5dq9AQtMtFL"). Multiplicar uma string diretamente por um
+ * número dá NaN em JS — por isso o hash converte tudo pra número primeiro.
+ */
+function hashSeed(id: number | string): number {
+  const str = String(id)
+  let hash = 2166136261
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0) || 1
+}
+
 /** Gera uma silhueta estável por faixa (previews não expõem CORS para decodificar o áudio real). */
-function useWaveform(trackId: number) {
+function useWaveform(trackId: number | string) {
   return useMemo(() => {
-    let seed = trackId || 1
+    let seed = hashSeed(trackId)
     const random = () => {
       seed = (seed * 1664525 + 1013904223) % 4294967296
       return seed / 4294967296

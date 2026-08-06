@@ -12,6 +12,7 @@ import numpy as np
 
 from src.config import RecommenderConfig
 from src.graph.engine import GraphEngine
+from src.graph.taxonomy import get_genre_compatibility
 
 # Base weights for Layer 1 metadata connections in 2-hop exploration (backwards compatibility alias)
 METADATA_WEIGHTS: dict[str, float] = RecommenderConfig().metadata_weights
@@ -174,8 +175,8 @@ class AdaptiveRadioRecommender:
             result = self._try_2hop_traversal(current_track_id, excluded_ids, feedback)
 
         if result is None:
-            # Step 3: Global Fallback (Random unplayed track)
-            result = self._global_fallback(excluded_ids, feedback)
+            # Step 3: Global Fallback (genre-anchored — see _global_fallback)
+            result = self._global_fallback(excluded_ids, feedback, current_track_id)
 
         # Push recommended track into history and update session vector
         self.history_buffer.append(result.recommended_track_id)
@@ -413,9 +414,17 @@ class AdaptiveRadioRecommender:
         self,
         excluded_ids: set[str],
         feedback: dict[str, list[str]] | None = None,
+        current_track_id: str | None = None,
     ) -> RecommendationResult:
         """
-        Global fallback sampling when 1-hop and 2-hop candidate pools are exhausted.
+        Global fallback sampling when 1-hop and 2-hop candidate pools are exhausted
+        (common for niche/underrepresented genres once their small neighbor pool
+        has been played through). Still weighted by genre compatibility with the
+        current track so a niche-genre seed doesn't randomly land on an
+        acoustically/stylistically unrelated genre just because the catalog is
+        dominated by other genres — e.g. without this, a ~100-track genre in an
+        ~90k-track mostly-English catalog would almost always fall back to
+        something completely unrelated.
         """
         all_ids = [str(tid) for tid in self.graph.idx_to_id]
         available_ids = [tid for tid in all_ids if tid not in excluded_ids]
@@ -425,17 +434,31 @@ class AdaptiveRadioRecommender:
             self.reset_session()
             available_ids = all_ids
 
-        if feedback:
+        curr_genre = (
+            self.graph.track_to_genre.get(current_track_id) if current_track_id else None
+        )
+        if curr_genre:
             weights = np.array(
+                [
+                    get_genre_compatibility(curr_genre, self.graph.track_to_genre.get(tid, ""))
+                    for tid in available_ids
+                ],
+                dtype=np.float64,
+            )
+        else:
+            weights = np.ones(len(available_ids), dtype=np.float64)
+
+        if feedback:
+            fb_mult = np.array(
                 [self._get_feedback_multiplier(tid, feedback) for tid in available_ids],
                 dtype=np.float64,
             )
-            total = weights.sum()
-            if total > 0:
-                prob = weights / total
-                chosen_id = str(self.rng.choice(available_ids, p=prob))
-            else:
-                chosen_id = str(self.rng.choice(available_ids))
+            weights = weights * fb_mult
+
+        total = weights.sum()
+        if total > 0:
+            prob = weights / total
+            chosen_id = str(self.rng.choice(available_ids, p=prob))
         else:
             chosen_id = str(self.rng.choice(available_ids))
 
@@ -448,5 +471,5 @@ class AdaptiveRadioRecommender:
             track_metadata=meta,
             recommendation_type="fallback",
             score=0.1,
-            explanation=f"Global random fallback to '{track_name}' by {artist_name}",
+            explanation=f"Genre-anchored fallback to '{track_name}' by {artist_name}",
         )

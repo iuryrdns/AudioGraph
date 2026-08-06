@@ -27,13 +27,27 @@ DEFAULT_DATASET_PATH = (
 )
 DEFAULT_CACHE_PATH = os.path.join("data", "spotify_graph_cache.pkl")
 
-# Global GraphEngine reference
+# Real-audio (librosa) engine: output of `python -m scripts.extract_features`.
+# Optional — only built if the CSV has actually been generated.
+AUDIO_DATASET_PATH = os.path.join("data", "features_audio.csv")
+AUDIO_CACHE_PATH = os.path.join("data", "audio_graph_cache.pkl")
+
+# Global GraphEngine references, one per feature source
 graph_engine: Optional[GraphEngine] = None
+audio_graph_engine: Optional[GraphEngine] = None
+
+ENGINES: dict[str, str] = {"spotify": "graph_engine", "audio": "audio_graph_engine"}
+
+
+def _get_engine(name: str) -> Optional[GraphEngine]:
+    if name not in ENGINES:
+        raise HTTPException(status_code=400, detail=f"Unknown engine '{name}'. Use one of {list(ENGINES)}.")
+    return graph_engine if name == "spotify" else audio_graph_engine
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global graph_engine
+    global graph_engine, audio_graph_engine
     print(f"[*] Starting AudioGraph-AI Python Server...")
     print(f"[*] Loading GraphEngine (Dataset: '{DEFAULT_DATASET_PATH}', Cache: '{DEFAULT_CACHE_PATH}')...")
     graph_engine = get_or_build_graph(
@@ -42,8 +56,28 @@ async def lifespan(app: FastAPI):
         force_rebuild=False,
         threshold=0.3,
         top_k=300,
+        source="spotify",
     )
     print(f"[+] GraphEngine loaded successfully with {len(graph_engine)} tracks.")
+
+    if os.path.exists(AUDIO_DATASET_PATH):
+        print(f"[*] Loading real-audio GraphEngine (Dataset: '{AUDIO_DATASET_PATH}')...")
+        from src.config import DEFAULT_AUDIO_FEATURE_WEIGHTS
+        audio_graph_engine = get_or_build_graph(
+            csv_path=AUDIO_DATASET_PATH,
+            cache_path=AUDIO_CACHE_PATH,
+            force_rebuild=False,
+            threshold=0.3,
+            top_k=300,
+            source="audio",
+            feature_weights=DEFAULT_AUDIO_FEATURE_WEIGHTS,
+        )
+        print(f"[+] Real-audio GraphEngine loaded successfully with {len(audio_graph_engine)} tracks.")
+    else:
+        print(
+            f"[i] '{AUDIO_DATASET_PATH}' not found — audio engine disabled. "
+            f"Run scripts/extract_features.py to generate it."
+        )
     yield
     print("[*] Shutting down AudioGraph-AI Python Server...")
 
@@ -153,6 +187,7 @@ class RecommendRequest(BaseModel):
     feedback: Optional[FeedbackData] = None
     exclude: list[Any] = Field(default_factory=list)
     count: int = 4
+    source: str = "spotify"
 
 
 @app.get("/health")
@@ -163,19 +198,27 @@ def health_check():
         "status": "online" if loaded else "initializing",
         "engine": "Python Graph Matrix",
         "total_tracks": len(graph_engine) if graph_engine else 0,
+        "audio_engine": {
+            "available": audio_graph_engine is not None,
+            "total_tracks": len(audio_graph_engine) if audio_graph_engine else 0,
+        },
     }
 
 
 @app.get("/api/py/search")
-def search_tracks(q: str = Query(..., min_length=1), limit: int = 20):
-    if not graph_engine:
-        raise HTTPException(status_code=503, detail="Graph Engine is initializing")
+def search_tracks(q: str = Query(..., min_length=1), limit: int = 20, source: str = "spotify"):
+    active_engine = _get_engine(source)
+    if not active_engine:
+        raise HTTPException(
+            status_code=503,
+            detail=f"'{source}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
+        )
 
     query = q.lower().strip()
     matches = []
 
-    for idx, track_id in enumerate(graph_engine.idx_to_id):
-        meta = graph_engine.get_metadata(str(track_id))
+    for idx, track_id in enumerate(active_engine.idx_to_id):
+        meta = active_engine.get_metadata(str(track_id))
         track_name = _safe_str(meta.get("track_name"))
         artist_name = _safe_str(meta.get("primary_artist") or meta.get("artists"))
         genre = _safe_str(meta.get("track_genre"))
@@ -205,21 +248,25 @@ def search_tracks(q: str = Query(..., min_length=1), limit: int = 20):
 
 @app.post("/api/py/recommend")
 def recommend_tracks(req: RecommendRequest):
-    if not graph_engine:
-        raise HTTPException(status_code=503, detail="Graph Engine is initializing")
+    active_engine = _get_engine(req.source)
+    if not active_engine:
+        raise HTTPException(
+            status_code=503,
+            detail=f"'{req.source}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
+        )
 
     # 1. Resolve Seed Track ID
     seed_id: Optional[str] = None
-    if req.seed_id and str(req.seed_id) in graph_engine:
+    if req.seed_id and str(req.seed_id) in active_engine:
         seed_id = str(req.seed_id)
-    elif req.seed and req.seed.trackId and str(req.seed.trackId) in graph_engine:
+    elif req.seed and req.seed.trackId and str(req.seed.trackId) in active_engine:
         seed_id = str(req.seed.trackId)
     elif req.seed and req.seed.name:
         # Search graph for closest track match
         target_name = req.seed.name.lower().strip()
         target_artist = (req.seed.artist or "").lower().strip()
-        for tid in graph_engine.idx_to_id:
-            meta = graph_engine.get_metadata(str(tid))
+        for tid in active_engine.idx_to_id:
+            meta = active_engine.get_metadata(str(tid))
             t_name = _safe_str(meta.get("track_name")).lower().strip()
             t_artist = _safe_str(meta.get("primary_artist")).lower().strip()
             if target_name in t_name and (not target_artist or target_artist in t_artist):
@@ -236,8 +283,8 @@ def recommend_tracks(req: RecommendRequest):
 
         if clean_target:
             # 1st pass: match clean name and artist
-            for tid in graph_engine.idx_to_id:
-                meta = graph_engine.get_metadata(str(tid))
+            for tid in active_engine.idx_to_id:
+                meta = active_engine.get_metadata(str(tid))
                 t_name = re.sub(r"\(.*?\)|\[.*?\]", "", _safe_str(meta.get("track_name"))).lower().strip()
                 t_artist = _safe_str(meta.get("primary_artist")).lower().strip()
                 if clean_target in t_name and (not clean_artist or clean_artist in t_artist):
@@ -245,11 +292,11 @@ def recommend_tracks(req: RecommendRequest):
                     break
 
         if not seed_id:
-            seed_id = str(random.choice(graph_engine.idx_to_id))
+            seed_id = str(random.choice(active_engine.idx_to_id))
 
     # 2. Instantiate Recommender
     recommender = AdaptiveRadioRecommender(
-        graph=graph_engine,
+        graph=active_engine,
         history_size=15,
         exploration_prob=0.20,
         artist_boost=1.35,
@@ -304,16 +351,20 @@ def recommend_tracks(req: RecommendRequest):
 
 
 @app.get("/api/py/graph/neighbors")
-def get_graph_neighbors(track_id: str = Query(...), limit: int = Query(10, ge=1, le=50)):
-    if not graph_engine:
-        raise HTTPException(status_code=503, detail="Graph Engine is initializing")
-    if track_id not in graph_engine:
+def get_graph_neighbors(track_id: str = Query(...), limit: int = Query(10, ge=1, le=50), source: str = "spotify"):
+    active_engine = _get_engine(source)
+    if not active_engine:
+        raise HTTPException(
+            status_code=503,
+            detail=f"'{source}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
+        )
+    if track_id not in active_engine:
         raise HTTPException(status_code=404, detail=f"Track ID '{track_id}' not found in graph engine")
 
-    neighbors = graph_engine.get_neighbors(track_id)[:limit]
+    neighbors = active_engine.get_neighbors(track_id)[:limit]
     res = []
     for nid, w in neighbors:
-        meta = graph_engine.get_metadata(nid)
+        meta = active_engine.get_metadata(nid)
         res.append({
             "trackId": str(nid),
             "name": _safe_str(meta.get("track_name")) or "Unknown",
@@ -325,13 +376,17 @@ def get_graph_neighbors(track_id: str = Query(...), limit: int = Query(10, ge=1,
 
 
 @app.get("/api/py/graph/stats")
-def get_graph_stats():
-    if not graph_engine:
-        raise HTTPException(status_code=503, detail="Graph Engine is initializing")
+def get_graph_stats(source: str = "spotify"):
+    active_engine = _get_engine(source)
+    if not active_engine:
+        raise HTTPException(
+            status_code=503,
+            detail=f"'{source}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
+        )
     return {
-        "total_tracks": len(graph_engine),
-        "total_edges": int(graph_engine.similarity_matrix.nnz),
-        "genres": list(graph_engine.genre_to_tracks.keys()),
+        "total_tracks": len(active_engine),
+        "total_edges": int(active_engine.similarity_matrix.nnz),
+        "genres": list(active_engine.genre_to_tracks.keys()),
     }
 
 
