@@ -14,6 +14,41 @@ import { TrackDetailsDialog } from "@/components/track-details-dialog"
 import { buildFeedback, buildQueue, type GraphNode } from "@/lib/graph"
 import type { Track } from "@/lib/itunes"
 
+function AudioGraphLogo({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" className={className} aria-hidden="true">
+      <defs>
+        <linearGradient id="flowGrad" x1="0%" y1="50%" x2="100%" y2="50%">
+          <stop offset="0%" stopColor="#34d399" stopOpacity={1} />
+          <stop offset="100%" stopColor="#10b981" stopOpacity={1} />
+        </linearGradient>
+      </defs>
+      <rect x="5" y="5" width="90" height="90" rx="22" fill="#0b0f12" />
+      <path
+        d="M 15 50
+           L 30 50
+           C 35 40, 40 60, 45 50
+           S 50 40, 55 50
+           L 70 50
+           C 75 40, 80 60, 85 50"
+        fill="none"
+        stroke="url(#flowGrad)"
+        strokeWidth={5}
+        strokeLinecap="round"
+      />
+      <circle cx="15" cy="50" r="4" fill="#34d399" />
+      <circle cx="30" cy="50" r="4" fill="#34d399" />
+      <circle cx="70" cy="50" r="4" fill="#10b981" />
+      <circle cx="85" cy="50" r="5" fill="#10b981" />
+      <circle cx="50" cy="50" r="1.5" fill="white" />
+      <circle cx="50" cy="50" r="15" fill="none" stroke="white" strokeWidth={1} strokeOpacity={0.3}>
+        <animate attributeName="r" from="2" to="20" dur="2s" repeatCount="indefinite" />
+        <animate attributeName="stroke-opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" />
+      </circle>
+    </svg>
+  )
+}
+
 export function GraphExplorer() {
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -330,11 +365,11 @@ export function GraphExplorer() {
     <div className="flex h-dvh flex-col bg-background" suppressHydrationWarning>
       <header className="flex shrink-0 flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:gap-6 md:px-6" suppressHydrationWarning>
         <div className="flex items-center gap-2">
-          <AudioLines className="size-5 text-primary" aria-hidden="true" />
+          <AudioGraphLogo className="size-18" />
           <div>
-            <h1 className="text-sm font-semibold leading-none text-foreground">AudioGraph-AI</h1>
+            <h1 className="text-sm font-semibold leading-none text-foreground">AudioGraph</h1>
             <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              rádio de recomendação inteligente
+              descoberta musical guiada por grafo
             </p>
           </div>
         </div>
@@ -504,7 +539,7 @@ export function GraphExplorer() {
         <PlayerBar
           node={selected}
           isPlaying={playingId === selected.id}
-          currentTime={audioRef.current?.currentSrc === selected.track.previewUrl ? currentTime : 0}
+          currentTime={currentTime}
           duration={duration}
           autoPlay={autoPlay}
           hasPrevious={history.length > 1}
@@ -514,7 +549,7 @@ export function GraphExplorer() {
           onSeek={seek}
           onTogglePlay={() => {
             if (playingId === selected.id) stop()
-            else play(selected, audioRef.current?.currentSrc === selected.track.previewUrl ? currentTime : 0, false)
+            else play(selected, currentTime, false)
           }}
           onPrevious={previous}
           onNext={() => void advance()}
