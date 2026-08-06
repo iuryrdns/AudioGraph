@@ -115,7 +115,7 @@ export function TrackDetailsDialog({
             <div className="mt-3 rounded-lg border border-border bg-card p-3 font-mono text-xs">
               <div className="flex justify-between text-muted-foreground">
                 <span>Nível da semente: #{node.depth}</span>
-                <span>Feedback: {node.feedback === "like" ? "👍 Curtido" : node.feedback === "dislike" ? "👎 Rejeitado" : "Sem avaliação"}</span>
+                <span>Feedback: {node.feedback === "like" ? "Curtido" : node.feedback === "dislike" ? "Rejeitado" : "Sem avaliação"}</span>
               </div>
             </div>
           )}
