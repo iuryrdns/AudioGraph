@@ -12,10 +12,35 @@ import numpy as np
 
 from src.config import RecommenderConfig
 from src.graph.engine import GraphEngine
-from src.graph.taxonomy import get_genre_compatibility
+from src.graph.taxonomy import audio_feature_similarity, get_genre_compatibility
+
+# Audio-feature keys used for the within-genre dislike tiebreaker below.
+# Matches the keys taxonomy._FEATURE_RANGES knows how to scale.
+_AUDIO_FEATURE_KEYS = ("danceability", "energy", "acousticness", "valence", "loudness", "tempo")
 
 # Base weights for Layer 1 metadata connections in 2-hop exploration (backwards compatibility alias)
 METADATA_WEIGHTS: dict[str, float] = RecommenderConfig().metadata_weights
+
+
+def _track_features(meta: dict[str, Any] | None) -> dict[str, float]:
+    """
+    Pulls the raw audio-feature subset from a track's metadata dict, in the
+    units taxonomy.audio_feature_similarity() expects. Missing/unparseable
+    values are skipped rather than raising, since not every dataset row is
+    guaranteed to carry every column.
+    """
+    if not meta:
+        return {}
+    out: dict[str, float] = {}
+    for key in _AUDIO_FEATURE_KEYS:
+        val = meta.get(key)
+        if val is None:
+            continue
+        try:
+            out[key] = float(val)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 @dataclass
@@ -215,6 +240,8 @@ class AdaptiveRadioRecommender:
         liked_genres = set(g.lower() for g in (feedback.get("liked_genres") or feedback.get("likedGenres") or []))
         disliked_artists = set(a.lower() for a in (feedback.get("disliked_artists") or feedback.get("dislikedArtists") or []))
         disliked_genres = set(g.lower() for g in (feedback.get("disliked_genres") or feedback.get("dislikedGenres") or []))
+        liked_track_ids = feedback.get("liked_track_ids") or feedback.get("likedTrackIds") or []
+        disliked_track_ids = feedback.get("disliked_track_ids") or feedback.get("dislikedTrackIds") or []
 
         meta = self.graph.get_metadata(track_id)
         artist = (meta.get("primary_artist") or meta.get("artists") or "").lower()
@@ -229,6 +256,51 @@ class AdaptiveRadioRecommender:
             mult *= 0.05
         if genre in disliked_genres:
             mult *= 0.2
+
+        # Audio-feature tiebreaker: Spotify genre tags are coarse (e.g. one
+        # "Axé/Forró" tag covers everything from acoustic pé-de-serra to
+        # heavily produced piseiro-style forró — see taxonomy.py). Because of
+        # that, the frontend deliberately does NOT zero out a disliked genre
+        # that was also liked elsewhere (a real like should not blanket-veto
+        # a whole genre). Without this block that meant a dislike inside an
+        # otherwise-liked genre had no effect at all. This compares the
+        # candidate's actual audio profile against the specific tracks the
+        # user rejected (and liked), so it can tell "acoustic forró" apart
+        # from "electronic forró" even when both carry the identical tag.
+        candidate_features = _track_features(meta)
+        if candidate_features and disliked_track_ids:
+            sims = []
+            for tid in disliked_track_ids:
+                if tid == track_id:
+                    continue
+                try:
+                    d_meta = self.graph.get_metadata(str(tid))
+                except KeyError:
+                    continue
+                d_features = _track_features(d_meta)
+                if d_features:
+                    sims.append(audio_feature_similarity(candidate_features, d_features))
+            if sims:
+                max_sim = max(sims)
+                if max_sim >= 0.8:
+                    mult *= 0.30
+                elif max_sim >= 0.65:
+                    mult *= 0.60
+
+        if candidate_features and liked_track_ids:
+            sims = []
+            for tid in liked_track_ids:
+                if tid == track_id:
+                    continue
+                try:
+                    l_meta = self.graph.get_metadata(str(tid))
+                except KeyError:
+                    continue
+                l_features = _track_features(l_meta)
+                if l_features:
+                    sims.append(audio_feature_similarity(candidate_features, l_features))
+            if sims and max(sims) >= 0.85:
+                mult *= 1.15
 
         return mult
 
@@ -359,7 +431,13 @@ class AdaptiveRadioRecommender:
                 meta_score += self.metadata_weights.get("genre", 0.5)
 
             direct_weight = self.graph.get_edge_weight(current_track_id, c_id)
-            acoustic_factor = direct_weight if direct_weight > 0.0 else 0.5
+            if direct_weight > 0.0:
+                acoustic_factor = direct_weight
+            else:
+                c_genre = self.graph.track_to_genre.get(c_id, "")
+                acoustic_factor = (
+                    get_genre_compatibility(curr_genre, c_genre) if curr_genre else 0.15
+                )
 
             candidate_scores[c_id] = candidate_scores.get(c_id, 0.0) + (
                 meta_score * acoustic_factor
