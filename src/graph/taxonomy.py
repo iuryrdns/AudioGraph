@@ -141,8 +141,8 @@ SUPER_GENRE_MAP: dict[str, str] = {
     "salsa": "SPANISH_LATIN_URBAN",
     "tango": "SPANISH_LATIN_URBAN",
     # BRAZILIAN FORRÓ / AXÉ / SERTANEJO / PISADINHA / MPB / SAMBA
-    "forro": "BRAZILIAN_FORRO_AXE",
-    "axe/forro": "BRAZILIAN_FORRO_AXE",
+    "forro": "BRAZILIAN_FORRO",
+    "axe/forro": "BRAZILIAN_AXE",
     "sertanejo": "BRAZILIAN_SERTANEJO",
     "pisadinha": "BRAZILIAN_PISADINHA",
     "piseiro": "BRAZILIAN_PISADINHA",
@@ -152,6 +152,9 @@ SUPER_GENRE_MAP: dict[str, str] = {
     "samba": "BRAZILIAN_MPB_SAMBA_ROCK",
     "pagode": "BRAZILIAN_MPB_SAMBA_ROCK",
     "samba/pagode": "BRAZILIAN_MPB_SAMBA_ROCK",
+    # Estava faltando: toda faixa "bossanova" caía em OTHER, perdendo o
+    # bônus de mesma família com MPB/samba e o par adjacente com jazz.
+    "bossanova": "BRAZILIAN_MPB_SAMBA_ROCK",
     # JAZZ / BLUES / COUNTRY
     "jazz": "JAZZ_BLUES",
     "blues": "JAZZ_BLUES",
@@ -195,7 +198,8 @@ SUPER_GENRE_MAP: dict[str, str] = {
 # Pre-normalized lookup built once at import time. This is what makes
 # accented / non-accented tag variants ("forró" vs "forro") resolve to
 # the same super-genre without needing duplicate entries above.
-_NORMALIZED_MAP: dict[str, str] = {_normalize(k): v for k, v in SUPER_GENRE_MAP.items()}
+_NORMALIZED_MAP: dict[str, str] = {_normalize(
+    k): v for k, v in SUPER_GENRE_MAP.items()}
 
 
 def get_super_genre(genre: str) -> str:
@@ -250,9 +254,15 @@ def get_genre_compatibility(genre1: str, genre2: str) -> float:
         # but its heavily electronic production sits closer to sertanejo
         # universitário than to acoustic pé-de-serra forró.
         ("BRAZILIAN_PISADINHA", "BRAZILIAN_SERTANEJO"): 0.55,
-        ("BRAZILIAN_PISADINHA", "BRAZILIAN_FORRO_AXE"): 0.45,
-        ("BRAZILIAN_SERTANEJO", "BRAZILIAN_FORRO_AXE"): 0.40,
+        ("BRAZILIAN_PISADINHA", "BRAZILIAN_FORRO"): 0.45,
+        ("BRAZILIAN_SERTANEJO", "BRAZILIAN_FORRO"): 0.40,
+        # raiz regional comum, produção diferente
+        ("BRAZILIAN_AXE", "BRAZILIAN_FORRO"): 0.35,
+        # ambos dançantes/produzidos, mas instrumentação distinta
+        ("BRAZILIAN_AXE", "BRAZILIAN_PISADINHA"): 0.35,
+        ("BRAZILIAN_AXE", "BRAZILIAN_SERTANEJO"): 0.30,
         ("BRAZILIAN_MPB_SAMBA_ROCK", "BRAZILIAN_SERTANEJO"): 0.30,
+        ("BRAZILIAN_MPB_SAMBA_ROCK", "JAZZ_BLUES"): 0.45,
     }
 
     if (sg1, sg2) in adjacent_pairs:
@@ -286,7 +296,10 @@ _FEATURE_RANGES = {
 }
 
 # How much a track's genre tag alone is trusted vs. its acoustic signature.
-# Lower this if genre tags in your dataset are known to be coarse/noisy.
+# Higher = more weight on the genre tag (more resistant to being pulled
+# down by a divergent audio signature). Lower this if genre tags in your
+# dataset are known to be coarse/noisy and you'd rather lean on audio
+# features instead.
 _GENRE_TRUST = 0.55
 
 
@@ -304,7 +317,8 @@ def audio_feature_similarity(features1: dict, features2: dict) -> float:
     if not used:
         return 1.0  # no data to disagree with -> don't penalize
 
-    diffs = [abs(_scale(features1[f], f) - _scale(features2[f], f)) for f in used]
+    diffs = [abs(_scale(features1[f], f) - _scale(features2[f], f))
+             for f in used]
     mean_diff = sum(diffs) / len(diffs)
     return 1.0 - mean_diff
 
@@ -328,8 +342,12 @@ def get_track_compatibility(
 
     audio_score = audio_feature_similarity(features1, features2)
 
-    # Genre sets the baseline; audio similarity pulls it up or down.
-    # A perfect genre match with very different audio features settles
-    # around GENRE_TRUST instead of staying pinned at 1.0.
-    blended = genre_score * (1 - _GENRE_TRUST) + (genre_score * audio_score) * _GENRE_TRUST
+    # Genre sets the floor via _GENRE_TRUST; audio similarity pulls the
+    # remaining share up or down. A perfect genre match with very
+    # different audio features settles at _GENRE_TRUST (the floor)
+    # instead of collapsing to (1 - _GENRE_TRUST) -- the original bug:
+    # that formula made *raising* _GENRE_TRUST *increase* sensitivity to
+    # audio divergence, the opposite of what the variable name promises.
+    blended = genre_score * _GENRE_TRUST + \
+        (genre_score * audio_score) * (1 - _GENRE_TRUST)
     return round(max(0.1, min(1.0, blended)), 3)
