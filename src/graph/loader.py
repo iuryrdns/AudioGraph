@@ -38,6 +38,34 @@ RAW_FEATURE_COLS: list[str] = [
     "popularity",
 ]
 
+# Pure acoustic features extracted directly from audio previews via librosa
+# (see scripts/extract_features.py). Unlike the Spotify columns above, these
+# are *measured* from the actual waveform instead of coming pre-computed in
+# the Kaggle dataset. 'key' is excluded (categorical pitch-class, not a
+# meaningful Euclidean dimension) mirroring the exclusion of 'key'/'mode'
+# from the Spotify FEATURE_COLUMNS. Ranges vary wildly (Hz vs dB vs ratios),
+# but that's fine: MinMaxScaler (step 10 below) rescales everything to
+# [0, 1] using the *observed* population range, same as the Spotify path.
+AUDIO_FEATURE_COLUMNS: list[str] = [
+    "tempo",
+    "loudness_db",
+    "rms",
+    "energy",
+    "zcr",
+    "spectral_centroid_hz",
+    "spectral_bandwidth_hz",
+    "spectral_rolloff_hz",
+    "rhythmic_strength",
+    "mode",
+]
+
+AUDIO_RAW_FEATURE_COLS: list[str] = AUDIO_FEATURE_COLUMNS
+
+FEATURE_COLUMNS_BY_SOURCE: dict[str, list[str]] = {
+    "spotify": FEATURE_COLUMNS,
+    "audio": AUDIO_FEATURE_COLUMNS,
+}
+
 
 class TrackDataset:
     """
@@ -51,12 +79,17 @@ class TrackDataset:
         scaler: MinMaxScaler,
         id_to_idx: dict[str, int],
         idx_to_id: np.ndarray,
+        feature_columns: list[str] | None = None,
     ):
         self.df = df
         self.X_scaled = X_scaled
         self.scaler = scaler
         self.id_to_idx = id_to_idx
         self.idx_to_id = idx_to_id
+        # Which feature set this dataset was built with ("spotify" or "audio"
+        # columns). builder.py reads this instead of a hardcoded constant so
+        # both engines can share the same graph-building code.
+        self.feature_columns = feature_columns or FEATURE_COLUMNS
 
     def __len__(self) -> int:
         return len(self.df)
@@ -224,7 +257,7 @@ def disambiguate_indian_tracks(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_and_preprocess_dataset(csv_path: str) -> TrackDataset:
+def load_and_preprocess_dataset(csv_path: str, source: str = "spotify") -> TrackDataset:
     """
     Loads dataset CSV, cleans missing values, parses artists, deduplicates tracks,
     and computes [0, 1] bounded feature matrix using MinMaxScaler.
@@ -232,7 +265,15 @@ def load_and_preprocess_dataset(csv_path: str) -> TrackDataset:
     Parameters
     ----------
     csv_path : str
-        Path to the Spotify tracks dataset CSV file.
+        Path to the tracks dataset CSV file.
+    source : str
+        Which feature set to build the similarity vector from:
+        - "spotify" (default): the pre-computed Kaggle/Spotify audio features
+          (danceability, valence, acousticness, ...). Expects the standard
+          spotify_tracks_dataset.csv columns.
+        - "audio": features measured directly from real audio previews via
+          librosa (see scripts/extract_features.py), expects the CSV produced
+          by that script (data/features_audio.csv).
 
     Returns
     -------
@@ -240,6 +281,12 @@ def load_and_preprocess_dataset(csv_path: str) -> TrackDataset:
         Container with preprocessed DataFrame, scaled feature matrix,
         MinMaxScaler instance, and bi-directional track ID index maps.
     """
+    if source not in FEATURE_COLUMNS_BY_SOURCE:
+        raise ValueError(
+            f"Unknown source '{source}'. Expected one of {list(FEATURE_COLUMNS_BY_SOURCE)}."
+        )
+    feature_columns = FEATURE_COLUMNS_BY_SOURCE[source]
+
     # 1. Load CSV
     df = pd.read_csv(csv_path)
 
@@ -248,17 +295,22 @@ def load_and_preprocess_dataset(csv_path: str) -> TrackDataset:
         df = df.drop(columns=["Unnamed: 0"])
 
     # 3. Handle missing/invalid data
+    raw_cols = RAW_FEATURE_COLS if source == "spotify" else AUDIO_RAW_FEATURE_COLS
     required_cols = [
         "track_id",
         "track_name",
         "artists",
         "track_genre",
-    ] + RAW_FEATURE_COLS
+    ] + raw_cols
     df = df.dropna(subset=[col for col in required_cols if col in df.columns]).copy()
 
     # 4. Normalized acoustic features
-    df["loudness_norm"] = np.clip((df["loudness"] + 60.0) / 60.0, 0.0, 1.0)
-    df["tempo_norm"] = np.clip(df["tempo"] / 200.0, 0.0, 1.0)
+    if source == "spotify":
+        df["loudness_norm"] = np.clip((df["loudness"] + 60.0) / 60.0, 0.0, 1.0)
+        df["tempo_norm"] = np.clip(df["tempo"] / 200.0, 0.0, 1.0)
+    # 'audio' source needs no manual pre-clipping: MinMaxScaler (step 10)
+    # rescales the raw librosa measurements to [0, 1] using the observed
+    # population min/max directly.
 
     # Disambiguate generic 'folk' tags for Indian artists/tracks
     df = disambiguate_indian_tracks(df)
@@ -283,7 +335,7 @@ def load_and_preprocess_dataset(csv_path: str) -> TrackDataset:
     # 8. Data Deduplication
     df = df.drop_duplicates(subset=["track_id"], keep="first")
     df = df.drop_duplicates(subset=["primary_artist", "track_name"], keep="first")
-    df = df.drop_duplicates(subset=FEATURE_COLUMNS, keep="first")
+    df = df.drop_duplicates(subset=feature_columns, keep="first")
 
     df = df.reset_index(drop=True)
 
@@ -293,7 +345,7 @@ def load_and_preprocess_dataset(csv_path: str) -> TrackDataset:
     idx_to_id: np.ndarray = np.array(track_ids, dtype=object)
 
     # 10. Pure Audio Feature Extraction & MinMaxScaler Normalization
-    X_raw = df[FEATURE_COLUMNS].values.astype(np.float32)
+    X_raw = df[feature_columns].values.astype(np.float32)
     scaler = MinMaxScaler(feature_range=(0.0, 1.0))
     X_scaled = scaler.fit_transform(X_raw).astype(np.float32)
 
@@ -303,4 +355,5 @@ def load_and_preprocess_dataset(csv_path: str) -> TrackDataset:
         scaler=scaler,
         id_to_idx=id_to_idx,
         idx_to_id=idx_to_id,
+        feature_columns=feature_columns,
     )
