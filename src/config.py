@@ -35,6 +35,25 @@ class BuilderConfig:
     )
 
 
+# Domain importance weights for the real-audio (librosa) feature set
+# (src/graph/loader.py::AUDIO_FEATURE_COLUMNS). Mirrors the reasoning behind
+# BuilderConfig.feature_weights: perceptually dominant dimensions (tempo,
+# loudness, energy, rhythmic strength) get more weight than noisier/more
+# timbre-specific spectral stats (zcr, centroid, bandwidth, rolloff).
+DEFAULT_AUDIO_FEATURE_WEIGHTS: dict[str, float] = {
+    "tempo": 2.5,
+    "loudness_db": 1.5,
+    "rms": 1.0,
+    "energy": 2.5,
+    "zcr": 0.5,
+    "spectral_centroid_hz": 1.0,
+    "spectral_bandwidth_hz": 0.75,
+    "spectral_rolloff_hz": 0.75,
+    "rhythmic_strength": 2.0,
+    "mode": 0.5,
+}
+
+
 @dataclass
 class RecommenderConfig:
     """
