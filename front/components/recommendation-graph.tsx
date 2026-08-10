@@ -38,7 +38,10 @@ export function RecommendationGraph({
   const [size, setSize] = useState({ width: 800, height: 600 })
   const [, setTick] = useState(0)
   const [view, setView] = useState({ x: 0, y: 0, k: 1 })
-  const [hideDisliked, setHideDisliked] = useState(false)
+  // Default true: começar escondendo os descartes evita que o grafo nasça
+  // poluído (ex.: 4 curtidas / 30 descartes / 36 nós visíveis). O botão
+  // "Mostrar Rejeitadas" continua disponível pra quem quiser inspecionar.
+  const [hideDisliked, setHideDisliked] = useState(true)
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
 
   const visibleNodes = hideDisliked

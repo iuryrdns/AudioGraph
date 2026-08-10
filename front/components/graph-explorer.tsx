@@ -11,7 +11,7 @@ import { UpNext } from "@/components/up-next"
 import { Button } from "@/components/ui/button"
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog"
 import { TrackDetailsDialog } from "@/components/track-details-dialog"
-import { buildFeedback, buildQueue, type GraphNode } from "@/lib/graph"
+import { buildFeedback, buildQueue, findLikedAnchor, type GraphNode } from "@/lib/graph"
 import type { Track } from "@/lib/itunes"
 function AudioGraphLogo({ className }: { className?: string }) {
   return (
@@ -223,9 +223,19 @@ export function GraphExplorer() {
 
     if (!next && currentId) {
       setLoadingNext(true)
-      await expand(currentId, 3)
+      const currentNode = nodesRef.current.find((item) => item.id === currentId)
+      // Se a faixa atual foi rejeitada, buscar "mais candidatos" a partir
+      // dela mesma só continuava puxando o mesmo estilo ruim (era o que
+      // gerava filhos como "Você Me Fez a Cabeça" saindo de uma faixa com
+      // X). Em vez disso, voltamos pro ancestral curtido mais próximo.
+      const seedId = currentNode?.feedback === "dislike"
+        ? (findLikedAnchor(nodesRef.current, currentId) ?? currentId)
+        : currentId
+      await expand(seedId, 3)
       setLoadingNext(false)
-      next = buildQueue(nodesRef.current, currentId, new Set(historyRef.current))[0]
+      next =
+        buildQueue(nodesRef.current, seedId, new Set(historyRef.current))[0] ??
+        buildQueue(nodesRef.current, currentId, new Set(historyRef.current))[0]
     }
     if (!next) {
       setPlayingId(null)
@@ -298,7 +308,12 @@ export function GraphExplorer() {
         void expand(id, 3)
       }
       if (next === "dislike") {
-        if (node.parentId) void expand(node.parentId, 1)
+        // Antes: `if (node.parentId) void expand(node.parentId, 1)` disparava uma
+        // busca nova a cada rejeição individual. Isso causava crescimento sem
+        // controle do grafo (30 descartes -> 30 nós extras nunca removidos),
+        // já que cada novo candidato também podia ser ruim e gerar mais um X.
+        // advance() já cobre a expansão quando a fila realmente esvazia
+        // (ver linhas 224-228), então não precisamos reexpandir aqui.
         if (id === selectedIdRef.current) void advance()
       }
     },
