@@ -4,6 +4,7 @@ const JUNK = /kidz bop|karaoke|tribute|instrumental version|made famous|8-bit|lu
 
 type Body = {
   engine?: "itunes" | "python"
+  allowFallback?: boolean
   seed: { trackId: number | string; name: string; artist: string; artistId: number | string; genre: string }
   feedback?: {
     likedArtists?: string[]
@@ -21,7 +22,7 @@ export async function POST(request: Request) {
   if (!seed?.name) return Response.json({ results: [] }, { status: 400 })
 
   // If engine mode is "python", try querying local Python FastAPI server first
-  if (body.engine === "python") {
+  if (body.engine === "python" && !body.allowFallback) {
     try {
       const pythonBase = process.env.PYTHON_ENGINE_URL || "http://127.0.0.1:8000"
       const pyRes = await fetch(`${pythonBase}/api/py/recommend`, {
@@ -32,12 +33,16 @@ export async function POST(request: Request) {
       if (pyRes.ok) {
         const pyData = await pyRes.json()
         if (pyData.results && pyData.results.length > 0) {
-          return Response.json(pyData)
+          return Response.json({ ...pyData, source: "python" })
         }
       }
     } catch {
-      // Fallback to iTunes algorithm if Python backend is offline
+      // Python backend offline.
     }
+    // Python engine found nothing (or is offline). Don't silently run the
+    // iTunes algorithm — tell the frontend so it can ask the user first.
+    // The frontend re-POSTs with allowFallback:true if the user says yes.
+    return Response.json({ results: [], source: "python", needsFallback: true })
   }
 
   const fb = body.feedback ?? {}
@@ -111,5 +116,8 @@ export async function POST(request: Request) {
     if (results.length >= count) break
   }
 
-  return Response.json({ results })
+  // `source` tells the UI which engine actually answered — lets it warn the
+  // user when they asked for "python" but got the iTunes text-scoring
+  // algorithm instead (e.g. Python server offline, or seed not in the graph).
+  return Response.json({ results, source: "itunes" })
 }

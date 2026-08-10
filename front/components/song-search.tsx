@@ -15,31 +15,40 @@ export function SongSearch({ onPick, disabled, engineMode = "itunes" }: Props) {
   const [results, setResults] = useState<Track[]>([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [needsFallback, setNeedsFallback] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  const runSearch = async (query: string, allowFallback: boolean) => {
+    setLoading(true)
+    try {
+      const res = await fetch(
+        `/api/search?q=${encodeURIComponent(query)}&engine=${engineMode}${allowFallback ? "&allowFallback=1" : ""}`,
+      )
+      const data = (await res.json()) as { results: Track[]; source?: "python" | "itunes"; needsFallback?: boolean }
+      setResults(data.results ?? [])
+      setNeedsFallback(Boolean(data.needsFallback))
+      setOpen(true)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     const query = term.trim()
+    setNeedsFallback(false)
     if (query.length < 2) {
       setResults([])
       return
     }
     let active = true
-    setLoading(true)
-    const timeout = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&engine=${engineMode}`)
-        const data = (await res.json()) as { results: Track[] }
-        if (!active) return
-        setResults(data.results ?? [])
-        setOpen(true)
-      } finally {
-        if (active) setLoading(false)
-      }
+    const timeout = setTimeout(() => {
+      if (active) runSearch(query, false)
     }, 350)
     return () => {
       active = false
       clearTimeout(timeout)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [term, engineMode])
 
 
@@ -66,7 +75,7 @@ export function SongSearch({ onPick, disabled, engineMode = "itunes" }: Props) {
 
   return (
     <div ref={containerRef} className="relative w-full">
-      <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-2 py-2 focus-within:border-primary/60 focus-within:ring-3 focus-within:ring-ring/30">
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 focus-within:border-primary/60 focus-within:ring-3 focus-within:ring-ring/30">
         {loading ? (
           <Loader2 className="size-4 animate-spin text-primary" aria-hidden="true" />
         ) : (
@@ -82,7 +91,7 @@ export function SongSearch({ onPick, disabled, engineMode = "itunes" }: Props) {
             if (event.key === "Escape") setOpen(false)
           }}
           disabled={disabled}
-          placeholder="Digite uma música ou artista"
+          placeholder="Digite uma música ou artista (ex: Blinding Lights)"
           aria-label="Buscar música"
           className="h-6 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
         />
@@ -90,6 +99,30 @@ export function SongSearch({ onPick, disabled, engineMode = "itunes" }: Props) {
 
       {open && (
         <div className="absolute z-30 mt-2 max-h-80 w-full overflow-y-auto rounded-xl border border-border bg-popover p-2 shadow-2xl">
+          {needsFallback && (
+            <div className="mb-2 flex flex-col gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[11px] leading-snug text-amber-400">
+              <span>
+                O motor Python não encontrou nada no grafo pra "{term}". Quer buscar no iTunes em
+                vez disso? (essas faixas ficam fora do grafo de recomendação)
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => runSearch(term.trim(), true)}
+                  className="rounded-md border border-amber-500/50 bg-amber-500/20 px-2 py-1 text-[11px] font-medium text-amber-300 hover:bg-amber-500/30"
+                >
+                  Buscar no iTunes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
           {term.trim().length < 2 ? (
             <div className="flex flex-col gap-2 p-2">
               <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -132,7 +165,7 @@ export function SongSearch({ onPick, disabled, engineMode = "itunes" }: Props) {
                 </li>
               ))}
             </ul>
-          ) : !loading ? (
+          ) : !loading && !needsFallback ? (
             <p className="p-3 text-center text-xs text-muted-foreground">Nenhuma música encontrada para "{term}"</p>
           ) : null}
         </div>

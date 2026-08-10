@@ -11,9 +11,8 @@ import { UpNext } from "@/components/up-next"
 import { Button } from "@/components/ui/button"
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog"
 import { TrackDetailsDialog } from "@/components/track-details-dialog"
-import { buildFeedback, buildQueue, type GraphNode } from "@/lib/graph"
+import { buildFeedback, buildQueue, findLikedAnchor, type GraphNode } from "@/lib/graph"
 import type { Track } from "@/lib/itunes"
-
 function AudioGraphLogo({ className }: { className?: string }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" className={className} aria-hidden="true">
@@ -62,6 +61,9 @@ export function GraphExplorer() {
 
   // Engine Mode Selection ("itunes" or "python")
   const [engineMode, setEngineMode] = useState<EngineMode>("itunes")
+  // Set when a "python" recommend request found nothing in the graph — we
+  // pause and ask the user before running the iTunes text algorithm instead.
+  const [pendingFallback, setPendingFallback] = useState<{ id: string; count: number } | null>(null)
 
   // Volume & Audio controls
   const [volume, setVolume] = useState(0.8)
@@ -143,14 +145,15 @@ export function GraphExplorer() {
     [selected],
   )
 
-  const expand = useCallback(async (id: string, count = 4) => {
+  const expand = useCallback(async (id: string, count = 4, allowFallback = false) => {
     const current = nodesRef.current
     const node = current.find((item) => item.id === id)
-    if (!node || node.loading) return
+    if (!node || (node.loading && !allowFallback)) return
 
     const withLoading = current.map((item) => (item.id === id ? { ...item, loading: true } : item))
     nodesRef.current = withLoading
     setNodes(withLoading)
+    setPendingFallback(null)
 
     try {
       const res = await fetch("/api/recommend", {
@@ -158,6 +161,7 @@ export function GraphExplorer() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           engine: engineModeRef.current,
+          allowFallback,
           seed: {
             trackId: node.track.trackId,
             name: node.track.name,
@@ -170,7 +174,17 @@ export function GraphExplorer() {
           count,
         }),
       })
-      const data = (await res.json()) as { results: Track[] }
+      const data = (await res.json()) as { results: Track[]; source?: "python" | "itunes"; needsFallback?: boolean }
+
+      if (data.needsFallback) {
+        // Python engine came up empty — stop and ask before touching iTunes.
+        const next = nodesRef.current.map((item) => (item.id === id ? { ...item, loading: false } : item))
+        nodesRef.current = next
+        setNodes(next)
+        setPendingFallback({ id, count })
+        return
+      }
+
       const existingTrackIds = new Set(nodesRef.current.map((item) => item.track.trackId))
       const existingNodeIds = new Set(nodesRef.current.map((item) => item.id))
       const children: GraphNode[] = []
@@ -209,9 +223,19 @@ export function GraphExplorer() {
 
     if (!next && currentId) {
       setLoadingNext(true)
-      await expand(currentId, 3)
+      const currentNode = nodesRef.current.find((item) => item.id === currentId)
+      // Se a faixa atual foi rejeitada, buscar "mais candidatos" a partir
+      // dela mesma só continuava puxando o mesmo estilo ruim (era o que
+      // gerava filhos como "Você Me Fez a Cabeça" saindo de uma faixa com
+      // X). Em vez disso, voltamos pro ancestral curtido mais próximo.
+      const seedId = currentNode?.feedback === "dislike"
+        ? (findLikedAnchor(nodesRef.current, currentId) ?? currentId)
+        : currentId
+      await expand(seedId, 3)
       setLoadingNext(false)
-      next = buildQueue(nodesRef.current, currentId, new Set(historyRef.current))[0]
+      next =
+        buildQueue(nodesRef.current, seedId, new Set(historyRef.current))[0] ??
+        buildQueue(nodesRef.current, currentId, new Set(historyRef.current))[0]
     }
     if (!next) {
       setPlayingId(null)
@@ -238,6 +262,7 @@ export function GraphExplorer() {
   const start = useCallback(
     (track: Track) => {
       stop()
+      setPendingFallback(null)
       const root: GraphNode = {
         id: `root-${track.trackId}`,
         track,
@@ -283,7 +308,12 @@ export function GraphExplorer() {
         void expand(id, 3)
       }
       if (next === "dislike") {
-        if (node.parentId) void expand(node.parentId, 1)
+        // Antes: `if (node.parentId) void expand(node.parentId, 1)` disparava uma
+        // busca nova a cada rejeição individual. Isso causava crescimento sem
+        // controle do grafo (30 descartes -> 30 nós extras nunca removidos),
+        // já que cada novo candidato também podia ser ruim e gerar mais um X.
+        // advance() já cobre a expansão quando a fila realmente esvazia
+        // (ver linhas 224-228), então não precisamos reexpandir aqui.
         if (id === selectedIdRef.current) void advance()
       }
     },
@@ -378,7 +408,13 @@ export function GraphExplorer() {
           <div className="flex-1 w-full">
             <SongSearch onPick={start} engineMode={engineMode} />
           </div>
-          <EngineToggle mode={engineMode} onChange={setEngineMode} />
+          <EngineToggle
+            mode={engineMode}
+            onChange={(mode) => {
+              setPendingFallback(null)
+              setEngineMode(mode)
+            }}
+          />
         </div>
 
         {started && (
@@ -409,6 +445,34 @@ export function GraphExplorer() {
           </div>
         )}
       </header>
+
+      {pendingFallback && (
+        <div className="flex shrink-0 flex-col gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-400 sm:flex-row sm:items-center sm:justify-between md:px-6">
+          <span className="flex items-center gap-2">
+            <span aria-hidden="true">⚠</span>
+            <span>
+              O motor Python não achou nada no grafo pra essa faixa. Quer continuar com o
+              algoritmo de texto do iTunes? (essas sugestões ficam fora do grafo)
+            </span>
+          </span>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => expand(pendingFallback.id, pendingFallback.count, true)}
+              className="rounded-md border border-amber-500/50 bg-amber-500/20 px-2.5 py-1 font-medium text-amber-300 hover:bg-amber-500/30"
+            >
+              Continuar com iTunes
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingFallback(null)}
+              className="rounded-md border border-border px-2.5 py-1 text-muted-foreground hover:bg-muted"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
 
       <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <section className="relative min-h-0 flex-1" aria-label={showGraph ? "Grafo de recomendações" : "Tocando agora"}>

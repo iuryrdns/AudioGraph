@@ -12,9 +12,35 @@ import numpy as np
 
 from src.config import RecommenderConfig
 from src.graph.engine import GraphEngine
+from src.graph.taxonomy import audio_feature_similarity, get_genre_compatibility
+
+# Audio-feature keys used for the within-genre dislike tiebreaker below.
+# Matches the keys taxonomy._FEATURE_RANGES knows how to scale.
+_AUDIO_FEATURE_KEYS = ("danceability", "energy", "acousticness", "valence", "loudness", "tempo")
 
 # Base weights for Layer 1 metadata connections in 2-hop exploration (backwards compatibility alias)
 METADATA_WEIGHTS: dict[str, float] = RecommenderConfig().metadata_weights
+
+
+def _track_features(meta: dict[str, Any] | None) -> dict[str, float]:
+    """
+    Pulls the raw audio-feature subset from a track's metadata dict, in the
+    units taxonomy.audio_feature_similarity() expects. Missing/unparseable
+    values are skipped rather than raising, since not every dataset row is
+    guaranteed to carry every column.
+    """
+    if not meta:
+        return {}
+    out: dict[str, float] = {}
+    for key in _AUDIO_FEATURE_KEYS:
+        val = meta.get(key)
+        if val is None:
+            continue
+        try:
+            out[key] = float(val)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 @dataclass
@@ -174,8 +200,8 @@ class AdaptiveRadioRecommender:
             result = self._try_2hop_traversal(current_track_id, excluded_ids, feedback)
 
         if result is None:
-            # Step 3: Global Fallback (Random unplayed track)
-            result = self._global_fallback(excluded_ids, feedback)
+            # Step 3: Global Fallback (genre-anchored — see _global_fallback)
+            result = self._global_fallback(excluded_ids, feedback, current_track_id)
 
         # Push recommended track into history and update session vector
         self.history_buffer.append(result.recommended_track_id)
@@ -214,6 +240,8 @@ class AdaptiveRadioRecommender:
         liked_genres = set(g.lower() for g in (feedback.get("liked_genres") or feedback.get("likedGenres") or []))
         disliked_artists = set(a.lower() for a in (feedback.get("disliked_artists") or feedback.get("dislikedArtists") or []))
         disliked_genres = set(g.lower() for g in (feedback.get("disliked_genres") or feedback.get("dislikedGenres") or []))
+        liked_track_ids = feedback.get("liked_track_ids") or feedback.get("likedTrackIds") or []
+        disliked_track_ids = feedback.get("disliked_track_ids") or feedback.get("dislikedTrackIds") or []
 
         meta = self.graph.get_metadata(track_id)
         artist = (meta.get("primary_artist") or meta.get("artists") or "").lower()
@@ -228,6 +256,51 @@ class AdaptiveRadioRecommender:
             mult *= 0.05
         if genre in disliked_genres:
             mult *= 0.2
+
+        # Audio-feature tiebreaker: Spotify genre tags are coarse (e.g. one
+        # "Axé/Forró" tag covers everything from acoustic pé-de-serra to
+        # heavily produced piseiro-style forró — see taxonomy.py). Because of
+        # that, the frontend deliberately does NOT zero out a disliked genre
+        # that was also liked elsewhere (a real like should not blanket-veto
+        # a whole genre). Without this block that meant a dislike inside an
+        # otherwise-liked genre had no effect at all. This compares the
+        # candidate's actual audio profile against the specific tracks the
+        # user rejected (and liked), so it can tell "acoustic forró" apart
+        # from "electronic forró" even when both carry the identical tag.
+        candidate_features = _track_features(meta)
+        if candidate_features and disliked_track_ids:
+            sims = []
+            for tid in disliked_track_ids:
+                if tid == track_id:
+                    continue
+                try:
+                    d_meta = self.graph.get_metadata(str(tid))
+                except KeyError:
+                    continue
+                d_features = _track_features(d_meta)
+                if d_features:
+                    sims.append(audio_feature_similarity(candidate_features, d_features))
+            if sims:
+                max_sim = max(sims)
+                if max_sim >= 0.8:
+                    mult *= 0.30
+                elif max_sim >= 0.65:
+                    mult *= 0.60
+
+        if candidate_features and liked_track_ids:
+            sims = []
+            for tid in liked_track_ids:
+                if tid == track_id:
+                    continue
+                try:
+                    l_meta = self.graph.get_metadata(str(tid))
+                except KeyError:
+                    continue
+                l_features = _track_features(l_meta)
+                if l_features:
+                    sims.append(audio_feature_similarity(candidate_features, l_features))
+            if sims and max(sims) >= 0.85:
+                mult *= 1.15
 
         return mult
 
@@ -358,7 +431,13 @@ class AdaptiveRadioRecommender:
                 meta_score += self.metadata_weights.get("genre", 0.5)
 
             direct_weight = self.graph.get_edge_weight(current_track_id, c_id)
-            acoustic_factor = direct_weight if direct_weight > 0.0 else 0.5
+            if direct_weight > 0.0:
+                acoustic_factor = direct_weight
+            else:
+                c_genre = self.graph.track_to_genre.get(c_id, "")
+                acoustic_factor = (
+                    get_genre_compatibility(curr_genre, c_genre) if curr_genre else 0.15
+                )
 
             candidate_scores[c_id] = candidate_scores.get(c_id, 0.0) + (
                 meta_score * acoustic_factor
@@ -413,9 +492,17 @@ class AdaptiveRadioRecommender:
         self,
         excluded_ids: set[str],
         feedback: dict[str, list[str]] | None = None,
+        current_track_id: str | None = None,
     ) -> RecommendationResult:
         """
-        Global fallback sampling when 1-hop and 2-hop candidate pools are exhausted.
+        Global fallback sampling when 1-hop and 2-hop candidate pools are exhausted
+        (common for niche/underrepresented genres once their small neighbor pool
+        has been played through). Still weighted by genre compatibility with the
+        current track so a niche-genre seed doesn't randomly land on an
+        acoustically/stylistically unrelated genre just because the catalog is
+        dominated by other genres — e.g. without this, a ~100-track genre in an
+        ~90k-track mostly-English catalog would almost always fall back to
+        something completely unrelated.
         """
         all_ids = [str(tid) for tid in self.graph.idx_to_id]
         available_ids = [tid for tid in all_ids if tid not in excluded_ids]
@@ -425,17 +512,31 @@ class AdaptiveRadioRecommender:
             self.reset_session()
             available_ids = all_ids
 
-        if feedback:
+        curr_genre = (
+            self.graph.track_to_genre.get(current_track_id) if current_track_id else None
+        )
+        if curr_genre:
             weights = np.array(
+                [
+                    get_genre_compatibility(curr_genre, self.graph.track_to_genre.get(tid, ""))
+                    for tid in available_ids
+                ],
+                dtype=np.float64,
+            )
+        else:
+            weights = np.ones(len(available_ids), dtype=np.float64)
+
+        if feedback:
+            fb_mult = np.array(
                 [self._get_feedback_multiplier(tid, feedback) for tid in available_ids],
                 dtype=np.float64,
             )
-            total = weights.sum()
-            if total > 0:
-                prob = weights / total
-                chosen_id = str(self.rng.choice(available_ids, p=prob))
-            else:
-                chosen_id = str(self.rng.choice(available_ids))
+            weights = weights * fb_mult
+
+        total = weights.sum()
+        if total > 0:
+            prob = weights / total
+            chosen_id = str(self.rng.choice(available_ids, p=prob))
         else:
             chosen_id = str(self.rng.choice(available_ids))
 
@@ -448,5 +549,5 @@ class AdaptiveRadioRecommender:
             track_metadata=meta,
             recommendation_type="fallback",
             score=0.1,
-            explanation=f"Global random fallback to '{track_name}' by {artist_name}",
+            explanation=f"Genre-anchored fallback to '{track_name}' by {artist_name}",
         )

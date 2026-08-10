@@ -7,19 +7,17 @@ const ALLOWED_HOSTS = [
   "deezer.com",
 ]
 
-async function fetchItunesPreview(trackName: string, artistName: string): Promise<string | null> {
+async function searchItunes(term: string, country?: string): Promise<string | null> {
   try {
-    const q = `${trackName} ${artistName}`.trim()
-    const res = await fetch(
-      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=1`,
-      {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        },
-        cache: "no-store",
-      }
-    )
+    const params = new URLSearchParams({ term, entity: "song", limit: "1" })
+    if (country) params.set("country", country)
+    const res = await fetch(`https://itunes.apple.com/search?${params.toString()}`, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      },
+      cache: "no-store",
+    })
     if (res.ok) {
       const data = (await res.json()) as { results?: { previewUrl?: string }[] }
       return data.results?.[0]?.previewUrl || null
@@ -27,6 +25,22 @@ async function fetchItunesPreview(trackName: string, artistName: string): Promis
   } catch {
     // Ignore error
   }
+  return null
+}
+
+async function fetchItunesPreview(trackName: string, artistName: string): Promise<string | null> {
+  const q = `${trackName} ${artistName}`.trim()
+
+  // Default (US) storefront first.
+  const usResult = await searchItunes(q)
+  if (usResult) return usResult
+
+  // A lot of this catalog is regional Brazilian music (forró, sertanejo,
+  // samba, axé, MPB...) that's often missing from the US storefront but
+  // present on the Brazilian one — retry there before giving up.
+  const brResult = await searchItunes(q, "BR")
+  if (brResult) return brResult
+
   return null
 }
 
@@ -120,4 +134,3 @@ export async function GET(request: NextRequest) {
     return new Response("Error streaming audio", { status: 502 })
   }
 }
-

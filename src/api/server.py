@@ -187,7 +187,7 @@ class RecommendRequest(BaseModel):
     feedback: Optional[FeedbackData] = None
     exclude: list[Any] = Field(default_factory=list)
     count: int = 4
-    engine: str = "spotify"
+    source: str = "spotify"
 
 
 @app.get("/health")
@@ -206,12 +206,12 @@ def health_check():
 
 
 @app.get("/api/py/search")
-def search_tracks(q: str = Query(..., min_length=1), limit: int = 20, engine: str = "spotify"):
-    active_engine = _get_engine(engine)
+def search_tracks(q: str = Query(..., min_length=1), limit: int = 20, source: str = "spotify"):
+    active_engine = _get_engine(source)
     if not active_engine:
         raise HTTPException(
             status_code=503,
-            detail=f"'{engine}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
+            detail=f"'{source}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
         )
 
     query = q.lower().strip()
@@ -248,11 +248,11 @@ def search_tracks(q: str = Query(..., min_length=1), limit: int = 20, engine: st
 
 @app.post("/api/py/recommend")
 def recommend_tracks(req: RecommendRequest):
-    active_engine = _get_engine(req.engine)
+    active_engine = _get_engine(req.source)
     if not active_engine:
         raise HTTPException(
             status_code=503,
-            detail=f"'{req.engine}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
+            detail=f"'{req.source}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
         )
 
     # 1. Resolve Seed Track ID
@@ -351,12 +351,12 @@ def recommend_tracks(req: RecommendRequest):
 
 
 @app.get("/api/py/graph/neighbors")
-def get_graph_neighbors(track_id: str = Query(...), limit: int = Query(10, ge=1, le=50), engine: str = "spotify"):
-    active_engine = _get_engine(engine)
+def get_graph_neighbors(track_id: str = Query(...), limit: int = Query(10, ge=1, le=50), source: str = "spotify"):
+    active_engine = _get_engine(source)
     if not active_engine:
         raise HTTPException(
             status_code=503,
-            detail=f"'{engine}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
+            detail=f"'{source}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
         )
     if track_id not in active_engine:
         raise HTTPException(status_code=404, detail=f"Track ID '{track_id}' not found in graph engine")
@@ -376,12 +376,12 @@ def get_graph_neighbors(track_id: str = Query(...), limit: int = Query(10, ge=1,
 
 
 @app.get("/api/py/graph/stats")
-def get_graph_stats(engine: str = "spotify"):
-    active_engine = _get_engine(engine)
+def get_graph_stats(source: str = "spotify"):
+    active_engine = _get_engine(source)
     if not active_engine:
         raise HTTPException(
             status_code=503,
-            detail=f"'{engine}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
+            detail=f"'{source}' engine is initializing or unavailable (run scripts/extract_features.py for 'audio').",
         )
     return {
         "total_tracks": len(active_engine),
