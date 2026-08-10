@@ -67,7 +67,7 @@ export function SongSearch({ onPick, disabled, engineMode = "itunes" }: Props) {
     setOpen(false)
   }
 
-  const QUICK_GENRES = ["Synthwave", "Pop", "Rock", "Indie", "Jazz", "Electronic", "Classical", "Lo-Fi"]
+  const QUICK_GENRES = ["Pop", "Rock", "Indie", "Jazz", "Electronic", "Classical", "Lo-Fi", "Forró"]
 
   const pickGenre = (genre: string) => {
     setTerm(genre)
@@ -91,7 +91,7 @@ export function SongSearch({ onPick, disabled, engineMode = "itunes" }: Props) {
             if (event.key === "Escape") setOpen(false)
           }}
           disabled={disabled}
-          placeholder="Digite uma música ou artista (ex: Blinding Lights)"
+          placeholder="Digite uma música, artista ou gênero."
           aria-label="Buscar música"
           className="h-6 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
         />
